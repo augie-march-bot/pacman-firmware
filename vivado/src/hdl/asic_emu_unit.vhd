@@ -45,7 +45,14 @@ architecture behaviour of asic_emu_unit is
       vcm_dac                 : out std_logic_vector(7 downto 0);
       csa_bypass_enable       : out std_logic_vector(63 downto 0);
       csa_bypass_select       : out std_logic_vector(63 downto 0);
-      csa_monitor_select      : out std_logic_vector(63 downto 0);
+      monitor_buf_select      : out std_logic_vector(63 downto 0);
+      monitor_s2d_p_select    : out std_logic_vector(63 downto 0);
+      monitor_s2d_n_select    : out std_logic_vector(63 downto 0);
+      ibias_s2d               : out std_logic_vector(15 downto 0);
+      vref_s2d_global_buffer  : out std_logic_vector(3 downto 0);
+      vcom_s2d_global_buffer  : out std_logic_vector(3 downto 0);
+      vref_s2d                : out std_logic_vector(7 downto 0);
+      vcom_s2d                : out std_logic_vector(7 downto 0);
       csa_testpulse_enable    : out std_logic_vector(63 downto 0);
       csa_testpulse_dac       : out std_logic_vector(7 downto 0);
       adc_ibias_delay_monitor : out std_logic_vector(3 downto 0);
