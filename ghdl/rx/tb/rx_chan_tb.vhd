@@ -34,7 +34,6 @@ architecture behaviour of rx_chan_tb is
   end component;
 
   signal count      : integer := 0;
-  signal tstep_ns   : integer := 10;
   signal clk        : std_logic;
   signal rst        : std_logic;
   signal baud       : std_logic;
@@ -47,12 +46,14 @@ architecture behaviour of rx_chan_tb is
 
   signal show_output : std_logic := '0';
 
+
 begin
   uut: rx_chan port map (
     CLK_I       => clk,
     RST_I       => rst,
     BAUD_I      => baud,
-    CONFIG_I    => x"00000101",
+--    CONFIG_I    => x"000A5108", -- inject noise ...
+    CONFIG_I    => x"000A1104",
     DATA_O      => data,
     TIMESTAMP_O => tstamp,
     VALID_O     => valid,
@@ -118,56 +119,82 @@ begin
 
   show_process : process
   begin
-    tstep_ns <= 100;
     show_output <= '1';
     wait;
   end process;
 
   output_process : process
     variable l : line;
+
+    variable sample_en  : std_logic := '0';
+    variable fall    : std_logic := '0';
     variable start   : std_logic := '0';
     variable update  : std_logic := '0';
     variable lost    : std_logic := '0';
+    variable vote    : std_logic := '0';
+    variable dissent : std_logic := '0';
+    variable noise   : std_logic := '0';
   begin
-    wait until status(0)='1';
-    wait for 1 ns;
-    wait for 10 ns;
 
-    start  := status(4);
-    update := status(5);
-    lost   := status(6);
+
+    wait until status(10)='1';
+    wait for 10 ns;
+    wait for 1 ns;
+
+    sample_en  := status(10);
+    start   := status(4);
+    update  := status(5);
+    lost    := status(6);
+    vote    := status(15);
+    dissent := status(11);
+    noise   := status(8);
 
     if (show_output='1') then
-      write (l, String'("c: "));
+
+      case status(1 downto 0) is
+        when "00" => write (l, String'("IDLE "));
+        when "01" => write (l, String'("FIRST"));
+        when "10" => write (l, String'("DATA "));
+        when "11" => write (l, String'("STOP "));
+        when others => write (l, String'("???? "));
+      end case;
+
+      write (l, String'(" c: "));
       write (l, count, left, 5);
       write  (l, String'("clk: "));
       write  (l, clk);
-      write  (l, String'(" bd: "));
-      write  (l, baud);
-      write  (l, String'(" en: "));
-      write  (l, status(0));
-      write  (l, String'(" b: "));
-      write (l, status(1));
-      write  (l, String'(" v: "));
-      write (l, status(2));
+      write  (l, String'(" vr: "));
       write (l, valid);
-      write  (l, String'(" r: "));
-      write (l, status(3));
       write (l, ready);
+
       write  (l, String'(" s: "));
       write (l, start);
       write  (l, String'(" u: "));
       write (l, update);
       write  (l, String'(" l: "));
       write (l, lost);
+
+      write  (l, String'("| ph: 0x"));
+      hwrite (l, status(31 downto 24));
       write  (l, String'(" | d: 0x"));
       hwrite (l, data);
       --write  (l, String'(" | ts: 0x"));
       --hwrite (l, tstamp);
       write  (l, String'(" | rx: "));
       write  (l, rx);
-      write  (l, String'(" | sel: "));
-      write  (l, status(8));
+      write  (l, status(12));
+      write  (l, status(13));
+      write  (l, status(14));
+
+      write  (l, String'(" b: "));
+      write  (l, baud);
+
+      write  (l, String'(" vden: "));
+      write  (l, vote);
+      write  (l, dissent);
+      write  (l, sample_en);
+      write  (l, noise);
+
       if (start = '1') then
         write (l, String'(" --- "));
       end if;

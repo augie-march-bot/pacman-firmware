@@ -85,7 +85,7 @@ begin
     S_REGBUS_RB_WADDR   => waddr,
     S_REGBUS_RB_WDATA   => wdata,
     S_REGBUS_RB_WACK    => wack,
-    UART_STATUS_I       => (others => x"0000ABFF"),
+    UART_STATUS_I       => (others => x"030FF1FC"),
     UART_CONFIG_O       => uconfig,
     UART_CHAN_O         => uchan,
     BUFFER_CONFIG_O     => bconfig,
