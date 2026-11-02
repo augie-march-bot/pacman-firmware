@@ -21,33 +21,39 @@ use work.common.all;
 --   IDLE:  waiting for arrival of valid data
 --     On arrival of valid data, move to STREAM state
 --
---   WAIT_STATE: all valid data streamed, wait for new data or timeout
---     On arrival of valid data, move to STREAM state
---     If configurable timeout occurs, move to TRAILER state
+--   WAIT_STATE: end of a sweep; close the packet or start next sweep.
+--     If the timeout has occurred, move to TRAILER state
+--     Otherwise, on valid data, move to STREAM state
 --
 --   STREAM: turn-based round-robin streaming of data to FIFO. Each RX
 --     channel is assigned one turn which lasts long enough to stream
 --     three 64-bit fragments when valid data is available and the
 --     stream is not busy.
---     If the number of words sent exceeds a threshold, move to
---     TRAILER state.
---     If no more valid data is available, return to WAIT_STATE
+--     If the number of words sent reaches the maximum, move to
+--     TRAILER state;  the next packet resumes the sweep at the channel
+--     whose turn was cut short, so that busy low channels cannot starve
+--     the higher ones.
+--     After each channel has had its turn (a full sweep), return to
+--     WAIT_STATE;  the next sweep starts at channel 0.
 --
 --   TRAILER: stream trailer word
 --     At end of packet, send three 64-bit fragments to write a
 --     192-bit TRAILER reporting the number of 192-bit words streamed
 --     (not including the TRAILER), and set LAST bit on the final
 --     fragment of the trailer.  Return to IDLE state after TRAILER is
---     streamed
+--     streamed.  In IDLE with no valid data the resume point returns
+--     to channel 0, so a burst on all channels at once comes out in
+--     channel order.
 --
 -- Data for the channel corresponding to the current turn is selected
 -- via the MUX.  After valid data for a channel has been buffered for
 -- streaming, the ready bit is set for that channel.  On receiving
 -- ready, each UART channel clears its valid bit.  If new data arrives
 -- on the RX channel before the valid bit is cleared (via ready) the
--- packet is lost, which is noted by the lost bit in the UART status
--- (see rx_chan.vhd).  Counters track the number of lost packets for
--- each UART (which should be zero during normal operation).
+-- ASIC packet is lost, which is noted by the lost bit in the UART
+-- status (see rx_chan.vhd).  Counters track the number of lost
+-- packets for each UART (which should be zero during normal
+-- operation).
 --
 -- Although the data is streamed one word at a time, many words are
 -- assembled into a single DMA packet (as marked via the LAST bit).
@@ -56,14 +62,18 @@ use work.common.all;
 --
 -- CONFIG_I:   0xMMMMTTTT
 -- DEFAULT:    0x00000001
--- where: TTTT is timeout in clock cycles for completing packet
---        MMMM is max words streamed for completing a packet
 --
+-- where TTTT is the timeout in units of 256 clock cycles for completing
+-- packet, and MMMM is max words streamed for completing a packet.
 -- In both cases, a zero is no condition (no timeout / no maximum).
--- The timeout is not checked while in stream state, so e.g. a timeout of one
--- (default setting) will send data from all channels with valid data once
--- valid data from at least one channel is available.
 --
+-- The timeout counts from the start of the packet and is acted on
+-- only in WAIT_STATE, at the end of a sweep (136 clock cycles), so the
+-- default timeout setting of 1 closes a packet within 256 + 136 = 392
+-- cycles.  A UART word takes 66 bit periods:  396 cycles at baud=6,
+-- 660 at baud=10.  So for baud >= 6, packets will contain at most one
+-- ASIC packet per UART channel.
+
 
 entity rx_buffer is
   port (
@@ -102,33 +112,7 @@ entity rx_buffer is
   );
 end;
 
-
-
 architecture behavioral of rx_buffer is
-  component axis_write is
-    generic (
-      constant C_AXIS_WIDTH    : integer  := C_RX_AXIS_WIDTH;
-      constant C_DEBUG_WIDTH   : integer  := 8
-    );
-    port (
-      CLK_I              : in std_logic;
-      RST_I              : in std_logic;
-
-      M_AXIS_TDATA       : out std_logic_vector(C_AXIS_WIDTH-1 downto 0);
-      M_AXIS_TVALID      : out std_logic;
-      M_AXIS_TREADY      : in std_logic;
-
-      M_AXIS_TKEEP       : out std_logic_vector(C_AXIS_WIDTH/8-1 downto 0);
-      M_AXIS_TLAST       : out std_logic;
-
-      BUSY_O             : out std_logic;
-      WEN_I              : in  std_logic;
-      LAST_I             : in  std_logic;
-      DATA_I             : in  std_logic_vector(C_AXIS_WIDTH-1 downto 0);
-      --
-      DEBUG_O            : out std_logic_vector(C_DEBUG_WIDTH-1 downto 0)
-    );
-  end component;
 
   signal clk       : std_logic;
   signal rst       : std_logic;
@@ -148,8 +132,10 @@ architecture behavioral of rx_buffer is
   -- turn and frag counters:
   signal frag   : integer range 0 to C_RX_FRAGS_PER_TURN-1 := 0;
   signal turn   : integer range 0 to (C_RX_NUM_CHAN)       := 0;
+  -- first turn of the next packet:  the channel whose turn a full packet cut short
+  signal resume : integer range 0 to (C_RX_NUM_CHAN-1)     := 0;
 
-  signal chan_select : std_logic_vector(C_SELECT_WIDTH-1 downto 0);
+  signal chan_select : std_logic_vector(C_SELECT_WIDTH-1 downto 0) := (others => '0');
   signal header      : std_logic_vector(C_RX_AXIS_WIDTH-1 downto 0);
   signal frag_a      : std_logic_vector(C_RX_AXIS_WIDTH-1 downto 0);
   signal frag_b      : std_logic_vector(C_RX_AXIS_WIDTH-1 downto 0);
@@ -166,19 +152,24 @@ begin
   --
   -- the stream writer outputs a stream assembled from buffered input
   -- data sourced from the uarts.
-  ar0: axis_write port map (
-    CLK_I           => clk,
-    RST_I           => rst,
-    M_AXIS_TDATA    => M_AXIS_TDATA,
-    M_AXIS_TVALID   => tvalid,
-    M_AXIS_TREADY   => tready,
-    M_AXIS_TKEEP    => M_AXIS_TKEEP,
-    M_AXIS_TLAST    => M_AXIS_TLAST,
-    BUSY_O          => busy,
-    WEN_I           => wen,
-    LAST_I          => last,
-    DATA_I          => data
-  );
+  ar0: entity work.axis_write
+    generic map (
+      C_AXIS_WIDTH => C_RX_AXIS_WIDTH
+    )
+    port map (
+      CLK_I           => clk,
+      RST_I           => rst,
+      M_AXIS_TDATA    => M_AXIS_TDATA,
+      M_AXIS_TVALID   => tvalid,
+      M_AXIS_TREADY   => tready,
+      M_AXIS_TKEEP    => M_AXIS_TKEEP,
+      M_AXIS_TLAST    => M_AXIS_TLAST,
+      BUSY_O          => busy,
+      WEN_I           => wen,
+      LAST_I          => last,
+      DATA_I          => data,
+      DEBUG_O         => open
+    );
   M_AXIS_TVALID <= tvalid;
   tready <= M_AXIS_TREADY;
 
@@ -227,9 +218,6 @@ begin
         else
           next_state <= TRAILER;
         end if;
-
-      when others =>
-        next_state <= IDLE;
     end case;
   end process;
 
@@ -244,14 +232,15 @@ begin
     end if;
   end process;
 
-  -- turn and frag counters:
+  -- turn and frag counters, and the resume point:
   -- only STREAM state uses turn counter
   -- only STREAM and TRAILER states use frag counter
   process(clk, rst)
   begin
     if rst = '1' then
-      turn <= 0;
-      frag <= 0;
+      turn   <= 0;
+      frag   <= 0;
+      resume <= 0;
     elsif rising_edge(clk) then
       case state is
         when STREAM =>
@@ -260,6 +249,15 @@ begin
               frag <= frag + 1;
             else
               frag <= 0;
+              -- a full packet ends with this turn, whose channel was not buffered:
+              -- the next packet starts with it (after the last channel:  a full sweep)
+              if packet_full = '1' then
+                if turn < C_RX_NUM_CHAN then
+                  resume <= turn;
+                else
+                  resume <= 0;
+                end if;
+              end if;
               -- turn = C_RX_NUM_CHAN is used to stream last channel...
               if turn < C_RX_NUM_CHAN then
                 turn <= turn + 1;
@@ -270,7 +268,7 @@ begin
           end if;
 
         when TRAILER =>
-          turn <= 0;
+          turn <= resume;
           if busy = '0' then
             if frag < C_RX_FRAGS_PER_TURN-1 then
               frag <= frag + 1;
@@ -279,9 +277,19 @@ begin
             end if;
           end if;
 
-        when others =>
+        when IDLE =>
           frag <= 0;
-          turn <= 0;
+          if valid_channel = '1' then
+            turn <= resume;
+          else
+            turn   <= 0;
+            resume <= 0;
+          end if;
+
+        when WAIT_STATE =>
+          frag   <= 0;
+          turn   <= 0;
+          resume <= 0;
       end case;
     end if;
   end process;
@@ -296,32 +304,28 @@ begin
     end if;
   end process;
 
-  -- packet timeout: reset in IDLE, otherwise count until configurable timeout
-  -- is reached, then flag is high until next reset or IDLE.
+  -- packet timeout: reset in IDLE, otherwise count down from configurable timeout
+  -- TTTT is timeout in units of 256 clock cycles
   process(clk, rst)
-    variable timeout_config : integer;
-    variable timeout_counter : integer range 0 to 16#FFFFF# := 0;
+    variable timeout_counter : integer range 0 to 16#1FFFFFF# := 0;
   begin
     if rst = '1' then
       timeout_counter := 0;
       packet_timeout <= '0';
     elsif rising_edge(clk) then
-      timeout_config := to_integer(unsigned(CONFIG_I(15 downto 0)));
-
       if (state = IDLE) then
-        timeout_counter := 0;
+        timeout_counter := to_integer(unsigned(CONFIG_I(15 downto 0))) * 256;
         packet_timeout <= '0';
       else
-        if (timeout_counter < 16#FFFFF#) then
-          timeout_counter := timeout_counter + 1;
+        if (timeout_counter > 0) then
+          timeout_counter := timeout_counter - 1;
         end if;
-        if ((timeout_config > 0) and (timeout_counter >= timeout_config)) then
+        if ((CONFIG_I(15 downto 0) /= x"0000") and (timeout_counter = 0)) then
           packet_timeout <= '1';
         end if;
       end if;
     end if;
   end process;
-
 
   -- buffer inputs process:
   process(clk, rst)
@@ -361,7 +365,10 @@ begin
             --waiting for mux...
 
           when 2 =>
-            if (buffer_active) then
+            -- not when the packet is full: the FSM moves to TRAILER after
+            -- this fragment, and a word buffered now (ready already sent)
+            -- would wait for the start of the next packet
+            if (buffer_active) and (packet_full = '0') then
               -- buffer the MUX inputs:
               header <= HEADER_I;
               frag_a <= FRAG_A_I;
@@ -470,7 +477,5 @@ begin
       STATUS_O <= status;
     end if;
   end process;
-
-
 
 end;

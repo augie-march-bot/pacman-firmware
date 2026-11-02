@@ -33,7 +33,7 @@ end;
 
 architecture behavioral of rx_data_mux is
   signal clk       : std_logic;
-  signal rst       : std_logic;
+  signal rst       : std_logic := '1';
 
   signal data_a    : std_logic_vector(C_UART_DATA_WIDTH-1 downto 0);
   signal data_b    : std_logic_vector(C_UART_DATA_WIDTH-1 downto 0);
@@ -50,9 +50,6 @@ begin
   lut(1) <= LUT_I(15 downto 8);
   lut(2) <= LUT_I(23 downto 16);
   lut(3) <= LUT_I(31 downto 24);
-
-  --data_b <= (others => '0') when to_integer(unsigned(SEL_B_I)) >= 40
-  --          else DATA_I(to_integer(unsigned(SEL_B_I)));
 
   process (rst, SEL_B_I, DATA_I)
     variable chan     : integer;
