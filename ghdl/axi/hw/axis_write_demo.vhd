@@ -12,12 +12,12 @@ entity axis_write_demo is
     constant C_ADDR_WIDTH  : integer  := C_RB_ADDR_WIDTH
   );
   port (
-    M_AXIS_ACLK         : in std_logic;
-    M_AXIS_ARESETN      : in std_logic;
+    CLK_I               : in std_logic;
+    RST_I               : in std_logic;
     M_AXIS_TDATA        : out std_logic_vector(C_AXIS_WIDTH-1 downto 0);
     M_AXIS_TVALID       : out std_logic;
     M_AXIS_TREADY       : in std_logic;
-    M_AXIS_TKEEP        : out std_logic_vector(15 downto 0);
+    M_AXIS_TKEEP        : out std_logic_vector(C_RX_AXIS_WIDTH/8-1 downto 0);
     M_AXIS_TLAST        : out std_logic;
 
     S_REGBUS_RB_RUPDATE : in  std_logic;
@@ -42,8 +42,8 @@ architecture behaviour of axis_write_demo is
       constant C_DEBUG_WIDTH : integer  := C_DEBUG_WIDTH
     );
     port (
-      M_AXIS_ACLK        : in  std_logic;
-      M_AXIS_ARESETN     : in  std_logic;
+      CLK_I        : in  std_logic;
+      RST_I     : in  std_logic;
       M_AXIS_TDATA       : out std_logic_vector(C_AXIS_WIDTH-1 downto 0);
       M_AXIS_TVALID      : out std_logic;
       M_AXIS_TREADY      : in  std_logic;
@@ -78,8 +78,8 @@ architecture behaviour of axis_write_demo is
 
 begin
   uut: axis_write port map (
-    M_AXIS_ACLK       => M_AXIS_ACLK,
-    M_AXIS_ARESETN    => M_AXIS_ARESETN,
+    CLK_I       => CLK_I,
+    RST_I    => RST_I,
     M_AXIS_TDATA      => M_AXIS_TDATA,
     M_AXIS_TVALID     => M_AXIS_TVALID,
     M_AXIS_TREADY     => M_AXIS_TREADY,
@@ -91,8 +91,8 @@ begin
     DATA_I            => idat
   );
 
-  clk <= M_AXIS_ACLK;
-  rst <= not M_AXIS_ARESETN;
+  clk <= CLK_I;
+  rst <= RST_I;
 
   rupdate <= S_REGBUS_RB_RUPDATE;
   raddr   <= S_REGBUS_RB_RADDR;
@@ -104,7 +104,7 @@ begin
   wdata   <= S_REGBUS_RB_WDATA;
   S_REGBUS_RB_WACK <= wack;
 
-  process(clk)
+  process(clk, rst)
     variable count : integer := 1;
   begin
     if (rst='1') then
@@ -128,7 +128,7 @@ begin
   end process;
 
   -- Handle Read Request:
-  process(clk)
+  process(clk, rst)
     variable reg     : integer;
   begin
     if (rst = '1') then
@@ -164,7 +164,7 @@ begin
   end process;
 
   -- Handle Write Request:
-  process(clk)
+  process(clk, rst)
     variable reg     : integer;
   begin
     if (rst = '1') then

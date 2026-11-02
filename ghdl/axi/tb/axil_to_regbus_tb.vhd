@@ -17,8 +17,9 @@ architecture behaviour of axil_to_regbus_tb is
   component axil_to_regbus is
     generic (
       constant C_ADDR_WIDTH : integer := C_ADDR_WIDTH;
-      constant C_DATA_WIDTH : integer := C_DATA_WIDTH
-      );
+      constant C_DATA_WIDTH : integer := C_DATA_WIDTH;
+      constant C_TIMEOUT_CYCLES : integer := 3
+    );
     port (
       S_AXI_ACLK         : in std_logic;
       S_AXI_ARESETN      : in std_logic;
@@ -42,12 +43,12 @@ architecture behaviour of axil_to_regbus_tb is
       S_AXI_BVALID       : out std_logic;
       S_AXI_BREADY       : in std_logic;
       P_REGBUS_RB_RUPDATE      : out std_logic;
-      P_REGBUS_RB_RADDR	       : out std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-      P_REGBUS_RB_RDATA	       : in  std_logic_vector(C_DATA_WIDTH-1 downto 0);
+      P_REGBUS_RB_RADDR        : out std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+      P_REGBUS_RB_RDATA        : in  std_logic_vector(C_DATA_WIDTH-1 downto 0);
       P_REGBUS_RB_RACK         : in std_logic;
       P_REGBUS_RB_WUPDATE      : out std_logic;
-      P_REGBUS_RB_WADDR	       : out std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-      P_REGBUS_RB_WDATA	       : out  std_logic_vector(C_DATA_WIDTH-1 downto 0);
+      P_REGBUS_RB_WADDR        : out std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+      P_REGBUS_RB_WDATA        : out  std_logic_vector(C_DATA_WIDTH-1 downto 0);
       P_REGBUS_RB_WACK         : in std_logic
     );
   end component;
@@ -73,6 +74,9 @@ architecture behaviour of axil_to_regbus_tb is
   signal rupdate  : std_logic;
   signal wupdate  : std_logic;
 
+  signal rack     : std_logic;
+  signal wack     : std_logic;
+
   signal rb_rdata  : std_logic_vector(C_DATA_WIDTH-1 downto 0) := (others => '0');
   signal rb_wdata  : std_logic_vector(C_DATA_WIDTH-1 downto 0) := (others => '0');
 
@@ -96,16 +100,16 @@ begin
     S_AXI_BREADY   => bready,
     P_REGBUS_RB_RDATA    => rb_rdata,
     P_REGBUS_RB_RUPDATE  => rupdate,
-    P_REGBUS_RB_RACK     => '0',
+    P_REGBUS_RB_RACK     => rack,
     P_REGBUS_RB_WDATA    => rb_wdata,
     P_REGBUS_RB_WUPDATE  => wupdate,
-    P_REGBUS_RB_WACK     => '0'
+    P_REGBUS_RB_WACK     => wack
   );
 
   aresetn_process : process
   begin
     aresetn <= '0';
-    wait for 12 ns;
+    wait for 20 ns;
     aresetn <= '1';
     wait;
   end process;
@@ -119,82 +123,69 @@ begin
     wait for 5 ns;
   end process;
 
-  rapid_read_process : process
+  read_process : process
   begin
+    wait for 1 ns;
     rb_rdata <= x"00000000";
-    araddr <= x"0000";
+    araddr   <= x"0000";
     arvalid  <= '0';
-    rready <= '0';
+    rack     <= '0';
+    rready   <= '1';
     wait for 20 ns;
-    araddr <= x"0000";
+    araddr   <= x"0004";
     arvalid  <= '1';
-    rready <= '1';
-    wait for 10 ns;
-    rb_rdata <= x"FFFF1111";
-    araddr <= x"0004";
-    wait for 10 ns;
-    rb_rdata <= (others => '0');
-    rready <= '1';
-    wait for 10 ns;
-    rb_rdata <= x"FFFF2222";
-    araddr <= x"0008";
-    wait for 10 ns;
-    rb_rdata <= (others => '0');
-    rready <= '1';
-    wait for 10 ns;
-    araddr <= x"000C";
-    rb_rdata <= x"FFFF3333";
-    wait for 10 ns;
-    rb_rdata <= (others => '0');
-    wait for 10 ns;
-    rready <= '0';
-    rb_rdata <= x"FFFF4444";
-    wait for 10 ns;
-    rb_rdata <= (others => '0');
-    wait for 30 ns;
-    rready <= '1';
-    wait for 10 ns;
-    araddr <= x"0010";
-    wait for 10 ns;
-    rb_rdata <= x"FFFF5555";
+    wait for 20 ns;
+    araddr   <= x"0008";
     arvalid  <= '1';
-    rready <= '0';
     wait for 10 ns;
-    rb_rdata <= (others => '0');
-    araddr <= x"0000";
-    arvalid  <= '0';
-    rready <= '0';
+    rb_rdata <= x"AAAAAAAA";
+    rack     <= '1';
+    wait for 10 ns;
+    rack     <= '0';
     wait for 30 ns;
-    rready <= '1';
+    araddr   <= x"000C";
     wait for 10 ns;
-    rready <= '0';
+    rb_rdata <= x"BBBBBBBB";
+    rack     <= '1';
+    wait for 10 ns;
+    rack     <= '0';
     wait;
+
   end process;
 
-  simple_write_process : process
+  write_process : process
   begin
+    wait for 1 ns;
     awaddr <= x"0000";
     awvalid  <= '0';
     wdata  <= x"00000000";
     wvalid  <= '0';
+    wack     <= '0';
     wait for 20 ns;
-    awaddr <= x"0000";
-    awvalid  <= '1';
-    wdata  <= x"ABCD1234";
-    wvalid  <= '1';
     bready <= '1';
-    wait for 20 ns;
     awaddr <= x"0004";
     awvalid  <= '1';
-    wdata  <= x"22222222";
+    wdata  <= x"11111111";
     wvalid  <= '1';
+    wait for 20 ns;
+    awaddr <= x"0008";
+    wdata  <= x"22222222";
+    wait for 10 ns;
+    wack     <= '1';
+    wait for 10 ns;
+    wack     <= '0';
     wait for 30 ns;
+    awaddr <= x"000C";
+    wdata  <= x"33333333";
+    wait for 60 ns;
     awaddr <= x"0000";
     awvalid  <= '0';
     wdata  <= x"00000000";
     wvalid  <= '0';
     wait for 10 ns;
-    bready <= '0';
+    wack     <= '1';
+    wait for 10 ns;
+    wack     <= '0';
     wait;
   end process;
 
@@ -211,40 +202,35 @@ begin
     write (l, count, left, 4);
     --write (l, String'(" aclk: "));
     --write (l, aclk);
-    write (l, String'(" || ar: 0x"));
+    write (l, String'(" |ar: 0x"));
     hwrite (l, araddr);
-    write (l, String'(" v:"));
+    write (l, String'(" vr:"));
     write (l, arvalid);
-    write (l, String'(" r: "));
     write (l, arready);
-    write (l, String'(" || r: 0x"));
+    write (l, String'(" r: 0x"));
     hwrite (l, rdata);
-    write (l, String'(" v: "));
+    write (l, String'(" vr: "));
     write (l, rvalid);
-    write (l, String'(" r: "));
     write (l, rready);
-    write (l, String'(" || aw: 0x"));
-    hwrite (l, awaddr);
-    write (l, String'(" v: "));
-    write (l, awvalid);
-    write (l, String'(" r: "));
-    write (l, awready);
-    write (l, String'(" || w: 0x"));
-    hwrite (l, wdata);
-    write (l, String'(" v: "));
-    write (l, wvalid);
-    write (l, String'(" r: "));
-    write (l, wready);
-    write (l, String'(" || b:   v: "));
-    write (l, bvalid);
-    write (l, String'(" r: "));
-    write (l, bready);
-    write (l, String'(" || rup: "));
+    write (l, String'(" ua: "));
     write (l, rupdate);
-    write (l, String'(" wup: "));
+    write (l, rack);
+    write (l, String'(" |aw: 0x"));
+    hwrite (l, awaddr);
+    write (l, String'(" vr:"));
+    write (l, awvalid);
+    write (l, awready);
+    write (l, String'(" w vr: "));
+    write (l, wvalid);
+    write (l, wready);
+    write (l, String'(" ua: "));
     write (l, wupdate);
-    write (l, String'(" w: 0x"));
-    hwrite (l, wdata);
+    write (l, wack);
+    write (l, String'(" d: 0x"));
+    hwrite (l, rb_wdata);
+    write (l, String'(" b vr: "));
+    write (l, bvalid);
+    write (l, bready);
     if (aresetn = '0') then
       write (l, String'(" (RST)"));
     end if;

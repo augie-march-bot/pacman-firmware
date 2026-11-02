@@ -6,31 +6,31 @@ entity axil_demo_rw is
   generic (
     C_DATA_WIDTH  : integer  := 32;
     C_ADDR_WIDTH  : integer  := 8
-    );
+  );
 
   port (
-    S_AXI_ACLK	        : in std_logic;
-    S_AXI_ARESETN	: in std_logic;
-    S_AXI_ARADDR	: in std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-    S_AXI_ARPROT	: in std_logic_vector(2 downto 0);
-    S_AXI_ARVALID	: in std_logic;
-    S_AXI_ARREADY	: out std_logic;
-    S_AXI_RDATA	        : out std_logic_vector(C_DATA_WIDTH-1 downto 0);
-    S_AXI_RRESP	        : out std_logic_vector(1 downto 0);
-    S_AXI_RVALID	: out std_logic;
-    S_AXI_RREADY	: in std_logic;
-    S_AXI_AWADDR	: in std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-    S_AXI_AWPROT	: in std_logic_vector(2 downto 0);
-    S_AXI_AWVALID	: in std_logic;
-    S_AXI_AWREADY	: out std_logic;
-    S_AXI_WDATA	        : in std_logic_vector(C_DATA_WIDTH-1 downto 0);
-    S_AXI_WSTRB	        : in std_logic_vector((C_DATA_WIDTH/8)-1 downto 0);
-    S_AXI_WVALID	: in std_logic;
-    S_AXI_WREADY	: out std_logic;
-    S_AXI_BRESP	        : out std_logic_vector(1 downto 0);
-    S_AXI_BVALID	: out std_logic;
-    S_AXI_BREADY	: in std_logic
-      );
+    S_AXI_ACLK          : in std_logic;
+    S_AXI_ARESETN       : in std_logic;
+    S_AXI_ARADDR        : in std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+    S_AXI_ARPROT        : in std_logic_vector(2 downto 0);
+    S_AXI_ARVALID       : in std_logic;
+    S_AXI_ARREADY       : out std_logic;
+    S_AXI_RDATA         : out std_logic_vector(C_DATA_WIDTH-1 downto 0);
+    S_AXI_RRESP         : out std_logic_vector(1 downto 0);
+    S_AXI_RVALID        : out std_logic;
+    S_AXI_RREADY        : in std_logic;
+    S_AXI_AWADDR        : in std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+    S_AXI_AWPROT        : in std_logic_vector(2 downto 0);
+    S_AXI_AWVALID       : in std_logic;
+    S_AXI_AWREADY       : out std_logic;
+    S_AXI_WDATA         : in std_logic_vector(C_DATA_WIDTH-1 downto 0);
+    S_AXI_WSTRB         : in std_logic_vector((C_DATA_WIDTH/8)-1 downto 0);
+    S_AXI_WVALID        : in std_logic;
+    S_AXI_WREADY        : out std_logic;
+    S_AXI_BRESP         : out std_logic_vector(1 downto 0);
+    S_AXI_BVALID        : out std_logic;
+    S_AXI_BREADY        : in std_logic
+  );
 begin
   assert C_ADDR_WIDTH>=8;
 end;
@@ -45,7 +45,7 @@ architecture behavioral of axil_demo_rw is
 
   signal rdata    : std_logic_vector(C_DATA_WIDTH-1 downto 0);
   signal rready   : std_logic;
-  signal rvalid	  : std_logic := '0';
+  signal rvalid   : std_logic := '0';
 
   signal awaddr   : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
   signal awready  : std_logic := '0';
@@ -53,7 +53,7 @@ architecture behavioral of axil_demo_rw is
 
   signal wdata    : std_logic_vector(C_DATA_WIDTH-1 downto 0);
   signal wready   : std_logic := '0';
-  signal wvalid	  : std_logic;
+  signal wvalid   : std_logic;
 
   signal bvalid   : std_logic := '0';
   signal bready   : std_logic;
@@ -74,11 +74,11 @@ begin
   S_AXI_RRESP   <= (others => '0');
 
   -- write signals:
-  S_AXI_AWREADY	<= awready;
+  S_AXI_AWREADY <= awready;
   S_AXI_WREADY  <= wready;
-  S_AXI_BVALID	<= bvalid;
+  S_AXI_BVALID  <= bvalid;
 -- Fixed response:
-  S_AXI_BRESP	<= (others => '0');
+  S_AXI_BRESP   <= (others => '0');
 
   clk <= S_AXI_ACLK;
 
@@ -99,10 +99,6 @@ begin
       arvalid <= S_AXI_ARVALID;
       rready  <= S_AXI_RREADY;
       awaddr  <= S_AXI_AWADDR;
-      awvalid <= S_AXI_ARVALID;
-      wdata   <= S_AXI_WDATA;
-      wvalid  <= S_AXI_RREADY;
-      awaddr  <= S_AXI_AWADDR;
       awvalid <= S_AXI_AWVALID;
       wdata   <= S_AXI_WDATA;
       wvalid  <= S_AXI_WVALID;
@@ -116,7 +112,7 @@ begin
   arready <= not rvalid;
   rupdate <= arready and arvalid;
   -- Determine rvalid:
-  process(clk)
+  process(clk, rst)
   begin
     if (rst = '1') then
       rvalid  <= '0';
@@ -129,8 +125,8 @@ begin
   end process;
 
   -- Send data
-  process(clk)
-  variable lowaddr : std_logic_vector(7 downto 0);
+  process(clk, rst)
+    variable lowaddr : std_logic_vector(7 downto 0);
   begin
     if (rst = '1') then
       rdata <= (others => '0');
@@ -163,8 +159,8 @@ begin
   wupdate <= awvalid and wvalid and (not wready) and (not bvalid);
 
   -- Determine wready:
-  process(clk)
-  variable lowaddr : std_logic_vector(7 downto 0);
+  process(clk, rst)
+    variable lowaddr : std_logic_vector(7 downto 0);
   begin
     if (rst = '1') then
       wready  <= '0';
@@ -178,8 +174,8 @@ begin
   end process;
 
   -- Receive data:
-  process(clk)
-  variable lowaddr : std_logic_vector(7 downto 0);
+  process(clk, rst)
+    variable lowaddr : std_logic_vector(7 downto 0);
   begin
     if (rst = '1') then
       rw0 <= (others => '0');
@@ -193,7 +189,7 @@ begin
           when x"04" =>
             rw1 <= wdata;
           when others =>
-            --
+        --
         end case;
       end if;
     end if;
