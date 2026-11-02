@@ -4,6 +4,19 @@ use ieee.numeric_std.all;
 
 package common is
 
+  -- maximum number of tile cards supported by firmware:
+  constant C_NUM_TILE            : integer  := 10;
+  -- maximum number of UART channels supported:
+  constant C_NUM_UART            : integer  := 40;
+  -- maximum number of LEDSs supported:
+  constant C_NUM_LED             : integer  := 2;
+  -- number bits needed for UART channel selection:
+  constant C_UART_SELECT_WIDTH   : integer  := 6;
+  -- number of marker bits sent from ATC to RX
+  constant C_NUM_MARKER          : integer  := 4;
+  -- status output of each unit (ATC, RX, TX) to the logic analyzer unit:
+  constant C_STATUS_BITS         : integer  := 8;
+
   -- register bus data is 32 bits, address 16 bits.
   constant C_RB_ADDR_WIDTH       : integer  := 16;
   constant C_RB_DATA_WIDTH       : integer  := 32;
@@ -14,7 +27,7 @@ package common is
   constant C_SELECT_WIDTH        : integer  := 6;   --deprecate for C_UART_SELECT_WIDTH
   constant C_UART_DATA_WIDTH     : integer  := 64;  --deprecate for C_UART64
   --deprecate for uart_reg16_array_t:
-  type uart_small_array_t     is array (0 to 39) of std_logic_vector (15 downto 0);
+  type uart_small_array_t     is array (0 to C_NUM_UART-1) of std_logic_vector (15 downto 0);
 
   -- maximum AXI-lite register size is 32-bits, but we provide smaller opitions:
   constant C_REG32_WIDTH         : integer  := 32;
@@ -25,20 +38,14 @@ package common is
   -- the UART data packet size from ASIC design is 64-bits:
   constant C_UART64              : integer  := 64;
 
-  -- maximum number of tile cards supported by firmware:
-  constant C_NUM_TILE            : integer  := 10;
-  -- maximum number of UART channels supported:
-  constant C_NUM_UART            : integer  := 40;
-  -- maximum number of LEDSs supported:
-  constant C_NUM_LED             : integer  := 2;
-  -- number bits needed for UART channel selection:
-  constant C_UART_SELECT_WIDTH   : integer  := 6;
-
 
   --arrays of std_logic_vectors with array length the number of uart channels:
   type uart_reg_array_t       is array (0 to C_NUM_UART-1) of std_logic_vector (C_RB_DATA_WIDTH-1 downto 0);
   type uart_reg16_array_t     is array (0 to C_NUM_UART-1) of std_logic_vector (C_REG16_WIDTH-1 downto 0);
   type uart_data_array_t      is array (0 to C_NUM_UART-1) of std_logic_vector (C_UART_DATA_WIDTH-1 downto 0);
+
+  type regbus_addr_array_t is array (natural range <>) of std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
+  type regbus_data_array_t is array (natural range <>) of std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
 
   constant C_ATC_COUNT_SELECT_WIDTH : integer := 5;
 
@@ -72,8 +79,8 @@ package common is
   type uart_counter_array_t is array (0 to C_NUM_UART-1) of unsigned(C_COUNT_BITS-1 downto 0);
 
   -- default TX / RX config register (can be set per UART channel)
-  constant C_DEFAULT_TX_UART_CONFIG : integer := 16#00001602#;
-  constant C_DEFAULT_RX_UART_CONFIG : integer := 16#00001002#;
+  constant C_DEFAULT_TX_UART_CONFIG : integer := 16#00000006#;
+  constant C_DEFAULT_RX_UART_CONFIG : integer := 16#000A1104#;
 
   -- default TX / RX global config register (one global setting)
   constant C_DEFAULT_TX_BUFFER_CONFIG     : integer := 16#00000000#;
@@ -83,8 +90,10 @@ package common is
   constant C_DEFAULT_RX_HEARTBEAT_HEADER  : integer := 16#00480053#;
   constant C_DEFAULT_RX_ROLLOVER_CONFIG   : integer := 16#1#;
   constant C_DEFAULT_RX_ROLLOVER_HEADER   : integer := 16#00530053#;
+  constant C_DEFAULT_RX_TRIGGER_HEADER    : integer := 16#00000054#;
   constant C_DEFAULT_RX_EOP_HEADER        : integer := 16#0000004C#;
-
+  constant C_DEFAULT_ATC_CONFIG_UART      : integer := 16#0000000A#;
+  constant C_DEFAULT_ATC_CONFIG_BAUD      : integer := 16#0000000A#;
 
   constant BRAM_ADDR_WIDTH     : integer  := 13;
   constant ADC_DATA_WIDTH      : integer  := 12;

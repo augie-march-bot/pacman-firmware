@@ -25,7 +25,7 @@ end;
 
 architecture behavioral of tx_data_mux is
   signal clk       : std_logic;
-  signal rst       : std_logic;
+  signal rst       : std_logic := '1';
 
   signal data_next : std_logic_vector(C_UART_DATA_WIDTH-1 downto 0);
 
@@ -43,7 +43,7 @@ begin
       data   := (others => '0');
       chan   := to_integer(unsigned(SEL_I));
 
-      if (chan < 40) then
+      if (chan < C_NUM_UART) then
         data   := DATA_I(chan);
       end if;
     end if;

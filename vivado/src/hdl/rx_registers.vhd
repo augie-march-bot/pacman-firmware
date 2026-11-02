@@ -21,18 +21,18 @@ use work.register_map.all;
 entity rx_registers is
   port (
     -- clock and active-high reset
-    CLK_I	        : in std_logic;
-    RST_I	        : in std_logic;
+    CLK_I               : in std_logic;
+    RST_I               : in std_logic;
 
     -- register bus (REGBUS) interface
     S_REGBUS_RB_RUPDATE : in  std_logic;
-    S_REGBUS_RB_RADDR	: in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
-    S_REGBUS_RB_RDATA	: out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    S_REGBUS_RB_RADDR   : in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
+    S_REGBUS_RB_RDATA   : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
     S_REGBUS_RB_RACK    : out std_logic;
 
     S_REGBUS_RB_WUPDATE : in  std_logic;
-    S_REGBUS_RB_WADDR	: in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
-    S_REGBUS_RB_WDATA	: in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    S_REGBUS_RB_WADDR   : in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
+    S_REGBUS_RB_WDATA   : in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
     S_REGBUS_RB_WACK    : out std_logic;
 
     -- UART registers (inputs):
@@ -65,13 +65,26 @@ entity rx_registers is
     WORD_TYPE_LUT_O     : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
 
     -- headers for additional non-UART words:
-    HEARTBEAT_HEADER_O  : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
-    ROLLOVER_HEADER_O   : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    HEADER_A_O          : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    HEADER_B_O          : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    HEADER_C_O          : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    HEADER_D_O          : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
     EOP_HEADER_O        : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
 
     -- look feature:
     LOOK_SELECT_O       : out std_logic_vector(C_SELECT_WIDTH-1 downto 0);
-    LOOK_UART_DATA_I    : in std_logic_vector(C_RX_AXIS_WIDTH-1 downto 0)
+    LOOK_UART_DATA_I    : in std_logic_vector(C_RX_AXIS_WIDTH-1 downto 0);
+
+    -- Pattern registers:
+    -- status from the pattern generator (start/stop pulses, tx peek)
+    PATTERN_STATUS_I    : in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    -- 64-bit payload
+    PATTERN_PAYLOAD_O   : out std_logic_vector(C_UART_DATA_WIDTH-1 downto 0);
+    -- idle count between transmissions
+    PATTERN_DELAY_O     : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    -- phase (7:0) / mode (11:8)
+    PATTERN_CONFIG_O    : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0)
+
   );
 end;
 
@@ -103,8 +116,10 @@ architecture behavioral of rx_registers is
   signal benables         : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
   signal pacman           : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
   signal wlut             : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
-  signal heartbeat_header : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
-  signal rollover_header  : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal header_a         : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal header_b         : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal header_c         : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal header_d         : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
   signal eop_header       : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
   signal look_select      : std_logic_vector(C_SELECT_WIDTH-1 downto 0)  := (others => '0');
 
@@ -117,25 +132,47 @@ architecture behavioral of rx_registers is
   signal zero_counters : std_logic := '0';
 
   -- UART condition counts and FIFO high-water mark
-  -- don't care about latency, so heavily registered:
+  -- we don't care about latency, so these are all heavily registered
+  -- (to help with timing)
   -- combintorial stage:
   signal starts_next  : uart_counter_array_t := (others => (others => '0'));
   signal beats_next   : uart_counter_array_t := (others => (others => '0'));
   signal updates_next : uart_counter_array_t := (others => (others => '0'));
   signal lost_next    : uart_counter_array_t := (others => (others => '0'));
+  signal frame_err_next : uart_counter_array_t := (others => (others => '0'));
+  signal noise_next     : uart_counter_array_t := (others => (others => '0'));
   signal fifo_max_next : unsigned(C_RB_DATA_WIDTH-1 downto 0);
+  signal pattern_starts_next : unsigned(C_COUNT_BITS-1 downto 0) := (others => '0');
+  signal pattern_stops_next  : unsigned(C_COUNT_BITS-1 downto 0) := (others => '0');
   -- first register stage:
   signal starts_rega  : uart_counter_array_t := (others => (others => '0'));
   signal beats_rega   : uart_counter_array_t := (others => (others => '0'));
   signal updates_rega : uart_counter_array_t := (others => (others => '0'));
   signal lost_rega    : uart_counter_array_t := (others => (others => '0'));
+  signal frame_err_rega : uart_counter_array_t := (others => (others => '0'));
+  signal noise_rega     : uart_counter_array_t := (others => (others => '0'));
   signal fifo_max_rega : unsigned(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal pattern_starts_rega : unsigned(C_COUNT_BITS-1 downto 0) := (others => '0');
+  signal pattern_stops_rega  : unsigned(C_COUNT_BITS-1 downto 0) := (others => '0');
   -- second register stage:
   signal starts_regb  : uart_counter_array_t := (others => (others => '0'));
   signal beats_regb   : uart_counter_array_t := (others => (others => '0'));
   signal updates_regb : uart_counter_array_t := (others => (others => '0'));
   signal lost_regb    : uart_counter_array_t := (others => (others => '0'));
+  signal frame_err_regb : uart_counter_array_t := (others => (others => '0'));
+  signal noise_regb     : uart_counter_array_t := (others => (others => '0'));
   signal fifo_max_regb : unsigned(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal pattern_starts_regb : unsigned(C_COUNT_BITS-1 downto 0) := (others => '0');
+  signal pattern_stops_regb  : unsigned(C_COUNT_BITS-1 downto 0) := (others => '0');
+
+  -- Pattern registers (outputs):
+  signal pattern_payload   : std_logic_vector(C_UART_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal pattern_delay     : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+  signal pattern_config    : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+
+  -- Pattern registers (input, registered):
+  signal pstatus : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0) := (others => '0');
+
 
   function init_chan_array return uart_small_array_t is
     variable tmp : uart_small_array_t;
@@ -154,15 +191,12 @@ begin
   rst <= RST_I;
   rupdate  <= S_REGBUS_RB_RUPDATE;
   raddr    <= S_REGBUS_RB_RADDR;
-  S_REGBUS_RB_RDATA <= rdata;
-  S_REGBUS_RB_RACK  <= rack;
   wupdate  <= S_REGBUS_RB_WUPDATE;
   waddr    <= S_REGBUS_RB_WADDR;
   wdata    <= S_REGBUS_RB_WDATA;
   S_REGBUS_RB_WACK <= wack;
 
   -- set output registers
-  UART_CONFIG_O           <= uart_config;
   UART_CHAN_O             <= uart_chan;
   BUFFER_CONFIG_O         <= bconfig;
   BUFFER_ENABLES_O        <= benables;
@@ -171,19 +205,52 @@ begin
   ROLLOVER_CONFIG_O       <= rollover_config;
   WORD_TYPE_LUT_O         <= wlut;
   LOOK_SELECT_O           <= look_select;
+  PATTERN_PAYLOAD_O       <= pattern_payload;
+  PATTERN_DELAY_O         <= pattern_delay;
+  PATTERN_CONFIG_O        <= pattern_config;
+
+  -- additional register stage for congested inputs and outputs to aid with timing
+  process(clk, rst)
+  begin
+    if (rst = '1') then
+      S_REGBUS_RB_RDATA <= (others => '0');
+      S_REGBUS_RB_RACK  <= '0';
+    elsif rising_edge(clk) then
+      S_REGBUS_RB_RDATA <= rdata;
+      S_REGBUS_RB_RACK  <= rack;
+    end if;
+  end process;
+
+  process(clk, rst)
+  begin
+    if (rst = '1') then
+      UART_CONFIG_O <= (others => (others => '0'));
+    elsif rising_edge(clk) then
+      UART_CONFIG_O <= uart_config;
+    end if;
+  end process;
 
   -- splice PACMAN ID field into the headers:
-  HEARTBEAT_HEADER_O(7 downto 0)   <= heartbeat_header(7 downto 0);
-  HEARTBEAT_HEADER_O(15 downto 8)  <= pacman(7 downto 0);
-  HEARTBEAT_HEADER_O(31 downto 16) <= heartbeat_header(31 downto 16);
+  HEADER_A_O(7 downto 0)   <= header_a(7 downto 0);
+  HEADER_A_O(15 downto 8)  <= pacman(7 downto 0);
+  HEADER_A_O(31 downto 16) <= header_a(31 downto 16);
 
-  ROLLOVER_HEADER_O(7 downto 0)    <= rollover_header(7 downto 0);
-  ROLLOVER_HEADER_O(15 downto 8)   <= pacman(7 downto 0);
-  ROLLOVER_HEADER_O(31 downto 16)  <= rollover_header(31 downto 16);
+  HEADER_B_O(7 downto 0)   <= header_b(7 downto 0);
+  HEADER_B_O(15 downto 8)  <= pacman(7 downto 0);
+  HEADER_B_O(31 downto 16) <= header_b(31 downto 16);
 
-  EOP_HEADER_O(7 downto 0)         <= eop_header(7 downto 0);
-  EOP_HEADER_O(15 downto 8)        <= pacman(7 downto 0);
-  EOP_HEADER_O(31 downto 16)       <= eop_header(31 downto 16);
+  HEADER_C_O(7 downto 0)   <= header_c(7 downto 0);
+  HEADER_C_O(15 downto 8)  <= pacman(7 downto 0);
+  HEADER_C_O(31 downto 16) <= header_c(31 downto 16);
+
+  HEADER_D_O(7 downto 0)   <= header_d(7 downto 0);
+  HEADER_D_O(15 downto 8)  <= pacman(7 downto 0);
+  HEADER_D_O(31 downto 16) <= header_d(31 downto 16);
+
+  EOP_HEADER_O(7 downto 0)   <= eop_header(7 downto 0);
+  EOP_HEADER_O(15 downto 8)  <= pacman(7 downto 0);
+  EOP_HEADER_O(31 downto 16) <= eop_header(31 downto 16);
+
   -- register input data:
   process(clk, rst)
   begin
@@ -191,12 +258,15 @@ begin
       ustatus     <= (others => (others => '0'));
       bstatus    <= (others => '0');
       fifo_count <= (others => '0');
+      pstatus    <= (others => '0');
     elsif (rising_edge(clk)) then
       ustatus    <= UART_STATUS_I;
       bstatus    <= BUFFER_STATUS_I;
       fifo_count <= FIFO_COUNT_I;
+      pstatus    <= PATTERN_STATUS_I;
     end if;
   end process;
+
 
   -- Handle Read Request:
   -- 1) Read request are indicated via rupdate=1 with a valid address
@@ -218,95 +288,130 @@ begin
     if (rst = '1') then
       rack <= '0';
       rdata <= x"00000000";
-    else
-      if (rising_edge(clk)) then
-        rack <= '0';
-        if (rupdate='1') then
-          scope := to_integer(unsigned(raddr(15 downto 14)));
-          chan  := to_integer(unsigned(raddr(13 downto 8)));
-          reg   := to_integer(unsigned(raddr(7 downto 0)));
-          rdata <= x"00000000";
-          if (scope=C_SCOPE_UPPER_RX) then
-            rdata <= x"EEEEEEEE";
-            rack  <= '0';
-            -- UART channel registers
-            if (chan < C_NUM_UART) then
-              if (reg=C_ADDR_RX_UART_STATUS) then
-                rdata <= ustatus(chan);
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_UART_CONFIG) then
-                rdata <= uart_config(chan);
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_UART_CHAN) then
-                rdata <= (others => '0');
-                rdata(15 downto 0) <= uart_chan(chan);
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_UART_STARTS) then
-                rdata <= (others => '0');
-                rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(starts_regb(chan));
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_UART_BEATS) then
-                rdata <= (others => '0');
-                rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(beats_regb(chan));
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_UART_UPDATES) then
-                rdata <= (others => '0');
-                rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(updates_regb(chan));
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_UART_LOST) then
-                rdata <= (others => '0');
-                rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(lost_regb(chan));
-                rack  <= '1';
-              end if;
-            -- global (to RX) registers)
-            elsif (chan = 16#3F#) then
-              if (reg=C_ADDR_RX_BUFFER_STATUS) then
-                rdata <= bstatus;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_BUFFER_CONFIG) then
-                rdata <= bconfig;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_BUFFER_ENABLES) then
-                rdata <= benables;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_PACMAN) then
-                rdata <= pacman;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_WORD_TYPE_LUT) then
-                rdata <= wlut;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_FIFO_CNT) then
-                rdata <= fifo_count;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_FIFO_MAX) then
-                rdata <= std_logic_vector(fifo_max_regb);
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_HEARTBEAT_CONFIG) then
-                rdata <= heartbeat_config;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_ROLLOVER_CONFIG) then
-                rdata <= rollover_config;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_HEARTBEAT_HEADER) then
-                rdata <= heartbeat_header;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_ROLLOVER_HEADER) then
-                rdata <= rollover_header;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_EOP_HEADER) then
-                rdata <= eop_header;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_LOOK_SELECT) then
-                rdata <= (others => '0');
-                rdata(C_SELECT_WIDTH-1 downto 0) <= look_select;
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_LOOK_UA) then
-                rdata <= LOOK_UART_DATA_I(31 downto 0);
-                rack  <= '1';
-              elsif (reg=C_ADDR_RX_LOOK_UB) then
-                rdata <= LOOK_UART_DATA_I(63 downto 32);
-                rack  <= '1';
-              end if;
+    elsif (rising_edge(clk)) then
+      rack <= '0';
+      if (rupdate='1') then
+        scope := to_integer(unsigned(raddr(15 downto 14)));
+        chan  := to_integer(unsigned(raddr(13 downto 8)));
+        reg   := to_integer(unsigned(raddr(7 downto 0)));
+        rdata <= x"00000000";
+        if (scope=C_SCOPE_UPPER_RX) then
+          rdata <= x"EEEEEEEE";
+          rack  <= '0';
+          -- UART channel registers
+          if (chan < C_NUM_UART) then
+            if (reg=C_ADDR_RX_UART_STATUS) then
+              rdata <= ustatus(chan);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_CONFIG) then
+              rdata <= uart_config(chan);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_CHAN) then
+              rdata <= (others => '0');
+              rdata(15 downto 0) <= uart_chan(chan);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_STARTS) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(starts_regb(chan));
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_BEATS) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(beats_regb(chan));
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_UPDATES) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(updates_regb(chan));
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_LOST) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(lost_regb(chan));
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_FRAME_ERR) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(frame_err_regb(chan));
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_UART_NOISE) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(noise_regb(chan));
+              rack  <= '1';
+            end if;
+          -- global (to RX) registers)
+          elsif (chan = C_CHAN_GLOBAL) then
+            if (reg=C_ADDR_RX_BUFFER_STATUS) then
+              rdata <= bstatus;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_BUFFER_CONFIG) then
+              rdata <= bconfig;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_BUFFER_ENABLES) then
+              rdata <= benables;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PACMAN) then
+              rdata <= pacman;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_WORD_TYPE_LUT) then
+              rdata <= wlut;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_FIFO_CNT) then
+              rdata <= fifo_count;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_FIFO_MAX) then
+              rdata <= std_logic_vector(fifo_max_regb);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_HEARTBEAT_CONFIG) then
+              rdata <= heartbeat_config;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_ROLLOVER_CONFIG) then
+              rdata <= rollover_config;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_HEADER_A) then
+              rdata <= header_a;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_HEADER_B) then
+              rdata <= header_b;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_HEADER_C) then
+              rdata <= header_c;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_HEADER_D) then
+              rdata <= header_d;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_EOP_HEADER) then
+              rdata <= eop_header;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_LOOK_SELECT) then
+              rdata <= (others => '0');
+              rdata(C_SELECT_WIDTH-1 downto 0) <= look_select;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_LOOK_LOWER) then
+              rdata <= LOOK_UART_DATA_I(31 downto 0);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_LOOK_UPPER) then
+              rdata <= LOOK_UART_DATA_I(63 downto 32);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_LOWER) then
+              rdata <= pattern_payload(31 downto 0);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_UPPER) then
+              rdata <= pattern_payload(63 downto 32);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_DELAY) then
+              rdata <= pattern_delay;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_CONFIG) then
+              rdata <= pattern_config;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_STATUS) then
+              rdata <= pstatus;
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_STARTS) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(pattern_starts_regb);
+              rack  <= '1';
+            elsif (reg=C_ADDR_RX_PATTERN_STOPS) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(pattern_stops_regb);
+              rack  <= '1';
             end if;
           end if;
         end if;
@@ -342,74 +447,95 @@ begin
       wlut                   <= std_logic_vector(to_unsigned(C_DEFAULT_RX_WORD_TYPE_LUT,    C_RB_DATA_WIDTH));
       heartbeat_config       <= std_logic_vector(to_unsigned(C_DEFAULT_RX_HEARTBEAT_CONFIG, C_RB_DATA_WIDTH));
       rollover_config        <= std_logic_vector(to_unsigned(C_DEFAULT_RX_ROLLOVER_CONFIG,  C_RB_DATA_WIDTH));
-      heartbeat_header       <= std_logic_vector(to_unsigned(C_DEFAULT_RX_HEARTBEAT_HEADER,  C_RB_DATA_WIDTH));
-      rollover_header        <= std_logic_vector(to_unsigned(C_DEFAULT_RX_ROLLOVER_HEADER,  C_RB_DATA_WIDTH));
+      header_a               <= std_logic_vector(to_unsigned(C_DEFAULT_RX_HEARTBEAT_HEADER, C_RB_DATA_WIDTH));
+      header_b               <= std_logic_vector(to_unsigned(C_DEFAULT_RX_ROLLOVER_HEADER,  C_RB_DATA_WIDTH));
+      header_c               <= std_logic_vector(to_unsigned(C_DEFAULT_RX_TRIGGER_HEADER,   C_RB_DATA_WIDTH));
+      header_d               <= (others => '0');
       eop_header             <= std_logic_vector(to_unsigned(C_DEFAULT_RX_EOP_HEADER,       C_RB_DATA_WIDTH));
       zero_counters <= '0';
       look_select <= (others => '0');
-    else
-      if (rising_edge(clk)) then
-        wack <= '0';
-        zero_counters <= '0';
-        if (wupdate='1') then
-          scope := to_integer(unsigned(waddr(15 downto 14)));
-          chan  := to_integer(unsigned(waddr(13 downto 8)));
-          reg   := to_integer(unsigned(waddr(7 downto 0)));
-          -- UART channel registers
-          if ((scope=C_SCOPE_UPPER_RX) and (chan < C_NUM_UART)) then
-            if (reg=C_ADDR_RX_UART_CONFIG) then
-              uart_config(chan) <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_UART_CHAN) then
-              uart_chan(chan) <= wdata(15 downto 0);
-              wack  <= '1';
-            end if;
+      pattern_config         <= (others => '0');
+      pattern_delay          <= (others => '0');
+      pattern_payload        <= (others => '0');
+    elsif (rising_edge(clk)) then
+      wack <= '0';
+      zero_counters <= '0';
+      if (wupdate='1') then
+        scope := to_integer(unsigned(waddr(15 downto 14)));
+        chan  := to_integer(unsigned(waddr(13 downto 8)));
+        reg   := to_integer(unsigned(waddr(7 downto 0)));
+        -- UART channel registers
+        if ((scope=C_SCOPE_UPPER_RX) and (chan < C_NUM_UART)) then
+          if (reg=C_ADDR_RX_UART_CONFIG) then
+            uart_config(chan) <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_UART_CHAN) then
+            uart_chan(chan) <= wdata(15 downto 0);
+            wack  <= '1';
           end if;
-          -- broadcast (write to all UART channels)
-          if ((scope=C_SCOPE_UPPER_RX) and (chan = 16#3B#)) then
-            if (reg=C_ADDR_RX_UART_CONFIG) then
-              for i in 0 to C_NUM_UART-1 loop
-                uart_config(i) <= wdata;
-              end loop;
-              wack  <= '1';
-            end if;
+        end if;
+        -- broadcast (write to all UART channels)
+        if ((scope=C_SCOPE_UPPER_RX) and (chan = C_CHAN_BROADCAST)) then
+          if (reg=C_ADDR_RX_UART_CONFIG) then
+            for i in 0 to C_NUM_UART-1 loop
+              uart_config(i) <= wdata;
+            end loop;
+            wack  <= '1';
           end if;
-          -- global (to RX) registers:
-          if ((scope=C_SCOPE_UPPER_RX) and (chan = 16#3F#)) then
-            if (reg=C_ADDR_RX_BUFFER_CONFIG) then
-              bconfig <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_BUFFER_ENABLES) then
-              benables <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_PACMAN) then
-              pacman <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_ZERO_CNTS) then
-              zero_counters <= '1';
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_WORD_TYPE_LUT) then
-              wlut  <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_HEARTBEAT_CONFIG) then
-              heartbeat_config <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_ROLLOVER_CONFIG) then
-              rollover_config <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_HEARTBEAT_HEADER) then
-              heartbeat_header <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_ROLLOVER_HEADER) then
-              rollover_header <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_EOP_HEADER) then
-              eop_header <= wdata;
-              wack  <= '1';
-            elsif (reg=C_ADDR_RX_LOOK_SELECT) then
-              look_select <= wdata(C_SELECT_WIDTH-1 downto 0);
-              wack  <= '1';
-            end if;
+        end if;
+        -- global (to RX) registers:
+        if ((scope=C_SCOPE_UPPER_RX) and (chan = C_CHAN_GLOBAL)) then
+          if (reg=C_ADDR_RX_BUFFER_CONFIG) then
+            bconfig <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_BUFFER_ENABLES) then
+            benables <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_PACMAN) then
+            pacman <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_ZERO_CNTS) then
+            zero_counters <= '1';
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_WORD_TYPE_LUT) then
+            wlut  <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_HEARTBEAT_CONFIG) then
+            heartbeat_config <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_ROLLOVER_CONFIG) then
+            rollover_config <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_HEADER_A) then
+            header_a <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_HEADER_B) then
+            header_b <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_HEADER_C) then
+            header_c <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_HEADER_D) then
+            header_d <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_EOP_HEADER) then
+            eop_header <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_LOOK_SELECT) then
+            look_select <= wdata(C_SELECT_WIDTH-1 downto 0);
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_PATTERN_LOWER) then
+            pattern_payload(31 downto 0) <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_PATTERN_UPPER) then
+            pattern_payload(63 downto 32) <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_PATTERN_DELAY) then
+            pattern_delay <= wdata;
+            wack  <= '1';
+          elsif (reg=C_ADDR_RX_PATTERN_CONFIG) then
+            pattern_config <= wdata;
+            wack  <= '1';
           end if;
         end if;
       end if;
@@ -417,21 +543,29 @@ begin
   end process;
 
   -- Count RX conditions from status register, zero on reset or zero_counters signal.
+  process(rst, ustatus, zero_counters, starts_rega, beats_rega, updates_rega, lost_rega, pstatus, pattern_starts_rega, pattern_stops_rega,
+          fifo_count, fifo_max_rega, frame_err_rega, noise_rega)
+    variable fifo_now  : unsigned(31 downto 0);
+    variable valid     : std_logic;
+    variable ready     : std_logic;
+    variable start     : std_logic;
+    variable update    : std_logic;
+    variable lost      : std_logic;
+    variable frame_err : std_logic;
+    variable noisy     : std_logic;
 
-  process(rst, ustatus, zero_counters, starts_rega, beats_rega, updates_rega, lost_rega)
-    variable fifo_now : unsigned(31 downto 0);
-    variable valid  : std_logic;
-    variable ready  : std_logic;
-    variable start  : std_logic;
-    variable update : std_logic;
-    variable lost   : std_logic;
   begin
     if (rst='1') or (zero_counters = '1') then
       starts_next   <= (others => (others => '0'));
       beats_next    <= (others => (others => '0'));
       updates_next  <= (others => (others => '0'));
       lost_next     <= (others => (others => '0'));
+      frame_err_next <= (others => (others => '0'));
+      noise_next     <= (others => (others => '0'));
+
       fifo_max_next  <= (others => '0');
+      pattern_starts_next <= (others => '0');
+      pattern_stops_next  <= (others => '0');
     else
       fifo_now := unsigned(fifo_count(31 downto 0));
 
@@ -441,13 +575,29 @@ begin
         fifo_max_next <= fifo_max_rega;
       end if;
 
+      -- pattern starts count increments when pstatus(0)=1
+      if (pstatus(0) = '1') and (pattern_starts_rega < C_COUNT_MAX) then
+        pattern_starts_next <= pattern_starts_rega + 1;
+      else
+        pattern_starts_next <= pattern_starts_rega;
+      end if;
+
+      -- pattern stops count increments when pstatus(1)=1
+      if (pstatus(1) = '1') and (pattern_stops_rega < C_COUNT_MAX) then
+        pattern_stops_next <= pattern_stops_rega + 1;
+      else
+        pattern_stops_next <= pattern_stops_rega;
+      end if;
+
       gen_next: for i in 0 to C_NUM_UART-1 loop
         -- extract status bits for clarity
-        valid  := ustatus(i)(1);
-        ready  := ustatus(i)(2);
-        start  := ustatus(i)(4);
-        update := ustatus(i)(5);
-        lost   := ustatus(i)(6);
+        valid     := ustatus(i)(2);
+        ready     := ustatus(i)(3);
+        start     := ustatus(i)(4);
+        update    := ustatus(i)(5);
+        lost      := ustatus(i)(6);
+        frame_err := ustatus(i)(7);
+        noisy     := ustatus(i)(8);
 
         -- starts count increments if starts=1
         if (start = '1') and (starts_rega(i) < C_COUNT_MAX) then
@@ -477,9 +627,27 @@ begin
           lost_next(i) <= lost_rega(i);
         end if;
 
+        -- frame_err count increments when frame_err=1 (bad stop bit):
+        if (frame_err = '1') and (frame_err_rega(i) < C_COUNT_MAX) then
+          frame_err_next(i) <= frame_err_rega(i) + 1;
+        else
+          frame_err_next(i) <= frame_err_rega(i);
+        end if;
+
+        -- noise count increments when noise=1 (dissent at a sample point):
+        if (noisy = '1') and (noise_rega(i) < C_COUNT_MAX) then
+          noise_next(i) <= noise_rega(i) + 1;
+        else
+          noise_next(i) <= noise_rega(i);
+        end if;
+
       end loop;
     end if;
   end process;
+
+
+
+
 
   -- registers for status counts:
   -- latency is not an issue, so there are two stages:
@@ -490,28 +658,44 @@ begin
       beats_rega    <= (others => (others => '0'));
       updates_rega  <= (others => (others => '0'));
       lost_rega     <= (others => (others => '0'));
+      frame_err_rega <= (others => (others => '0'));
+      noise_rega     <= (others => (others => '0'));
       fifo_max_rega <= (others => '0');
+      pattern_starts_rega <= (others => '0');
+      pattern_stops_rega  <= (others => '0');
 
       starts_regb   <= (others => (others => '0'));
       beats_regb    <= (others => (others => '0'));
       updates_regb  <= (others => (others => '0'));
       lost_regb     <= (others => (others => '0'));
+      frame_err_regb <= (others => (others => '0'));
+      noise_regb     <= (others => (others => '0'));
       fifo_max_regb <= (others => '0');
+      pattern_starts_regb <= (others => '0');
+      pattern_stops_regb  <= (others => '0');
 
     elsif rising_edge(clk) then
       -- First register stage: next -> rega
-      starts_rega   <= starts_next;
-      beats_rega    <= beats_next;
-      updates_rega  <= updates_next;
-      lost_rega     <= lost_next;
-      fifo_max_rega <= fifo_max_next;
+      starts_rega    <= starts_next;
+      beats_rega     <= beats_next;
+      updates_rega   <= updates_next;
+      lost_rega      <= lost_next;
+      frame_err_rega <= frame_err_next;
+      noise_rega     <= noise_next;
+      fifo_max_rega  <= fifo_max_next;
+      pattern_starts_rega <= pattern_starts_next;
+      pattern_stops_rega  <= pattern_stops_next;
 
       -- Second register stage: rega -> regb
-      starts_regb   <= starts_rega;
-      beats_regb    <= beats_rega;
-      updates_regb  <= updates_rega;
-      lost_regb     <= lost_rega;
-      fifo_max_regb <= fifo_max_rega;
+      starts_regb    <= starts_rega;
+      beats_regb     <= beats_rega;
+      updates_regb   <= updates_rega;
+      lost_regb      <= lost_rega;
+      frame_err_regb <= frame_err_rega;
+      noise_regb     <= noise_rega;
+      fifo_max_regb  <= fifo_max_rega;
+      pattern_starts_regb <= pattern_starts_rega;
+      pattern_stops_regb  <= pattern_stops_rega;
     end if;
   end process;
 
