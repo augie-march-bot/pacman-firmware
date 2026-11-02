@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')   # headless: make diagrams
 import matplotlib.pyplot as plt
 import numpy as np
 from vcdvcd import VCDVCD
@@ -7,34 +7,34 @@ from vcdvcd import VCDVCD
 import timing_diagram as td
 
 # Load the VCD file
-vcd_path = "tx_buffer_tb.vcd"
+vcd_path = "tx_buffer_diagram_tb.vcd"
 vcd = VCDVCD(vcd_path)
 
 # Print all signals for reference (optional)
-print("Signals in VCD:")
-for s in vcd.signals:
-     print(s)
+#print("Signals in VCD:")
+#for s in vcd.signals:
+#     print(s)
 
 TSTART  = 0
 TFINISH = 600
 
-clk_t, clk_v                = td.get_time_series_single_bit(vcd, "tx_buffer_tb.clk",   TSTART, TFINISH)
-tvalid_t, tvalid_v          = td.get_time_series_single_bit(vcd, "tx_buffer_tb.tvalid", TSTART, TFINISH)
-tlast_t, tlast_v            = td.get_time_series_single_bit(vcd, "tx_buffer_tb.tlast",  TSTART, TFINISH)
-tready_t, tready_v          = td.get_time_series_single_bit(vcd, "tx_buffer_tb.tready", TSTART, TFINISH)
+clk_t, clk_v                = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.clk",   TSTART, TFINISH)
+tvalid_t, tvalid_v          = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.tvalid", TSTART, TFINISH)
+tlast_t, tlast_v            = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.tlast",  TSTART, TFINISH)
+tready_t, tready_v          = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.tready", TSTART, TFINISH)
 
-tdata_t, tdata_va, tdata_vb, tdata_lt, tdata_lv      = td.get_time_series_bus(vcd, "tx_buffer_tb.tdata[63:0]", TSTART, TFINISH, 1)
-uvalid_t, uvalid_va, uvalid_vb, uvalid_lt, uvalid_lv = td.get_time_series_bus(vcd, "tx_buffer_tb.uvalid[39:0]", TSTART, TFINISH, 1)
-uready_t, uready_va, uready_vb, uready_lt, uready_lv = td.get_time_series_bus(vcd, "tx_buffer_tb.uready[39:0]", TSTART, TFINISH, 1)
+tdata_t, tdata_va, tdata_vb, tdata_lt, tdata_lv      = td.get_time_series_bus(vcd, "tx_buffer_diagram_tb.tdata[63:0]", TSTART, TFINISH, 1)
+uvalid_t, uvalid_va, uvalid_vb, uvalid_lt, uvalid_lv = td.get_time_series_bus(vcd, "tx_buffer_diagram_tb.uvalid[39:0]", TSTART, TFINISH, 1)
+uready_t, uready_va, uready_vb, uready_lt, uready_lv = td.get_time_series_bus(vcd, "tx_buffer_diagram_tb.uready[39:0]", TSTART, TFINISH, 1)
 
-uvalida_t, uvalida_v        = td.get_time_series_single_bit(vcd, "tx_buffer_tb.uvalid_a", TSTART, TFINISH)
-uvalidb_t, uvalidb_v        = td.get_time_series_single_bit(vcd, "tx_buffer_tb.uvalid_b", TSTART, TFINISH)
-uvalidc_t, uvalidc_v        = td.get_time_series_single_bit(vcd, "tx_buffer_tb.uvalid_c", TSTART, TFINISH)
+uvalida_t, uvalida_v        = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.uvalid_a", TSTART, TFINISH)
+uvalidb_t, uvalidb_v        = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.uvalid_b", TSTART, TFINISH)
+uvalidc_t, uvalidc_v        = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.uvalid_c", TSTART, TFINISH)
 
 
-ureadya_t, ureadya_v        = td.get_time_series_single_bit(vcd, "tx_buffer_tb.uready_a", TSTART, TFINISH)
-ureadyb_t, ureadyb_v        = td.get_time_series_single_bit(vcd, "tx_buffer_tb.uready_b", TSTART, TFINISH)
-ureadyc_t, ureadyc_v        = td.get_time_series_single_bit(vcd, "tx_buffer_tb.uready_c", TSTART, TFINISH)
+ureadya_t, ureadya_v        = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.uready_a", TSTART, TFINISH)
+ureadyb_t, ureadyb_v        = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.uready_b", TSTART, TFINISH)
+ureadyc_t, ureadyc_v        = td.get_time_series_single_bit(vcd, "tx_buffer_diagram_tb.uready_c", TSTART, TFINISH)
 
 
 
@@ -79,7 +79,7 @@ for i in range(uready_lt.size):
      if (uready_lv[i]>0):
           plt.text(uready_lt[i],    3.2, "0x{:010X}".format(uready_lv[i]), fontsize = 12, rotation=40)
 
-yticks = [2.5, 6.5, 10.5, 12.5, 14.5, 16.5, 18.5] 
+yticks = [2.5, 6.5, 10.5, 12.5, 14.5, 16.5, 18.5]
 ytick_labels = ['uready', 'uvalid', 'tdata', 'tready', 'tlast', 'tvalid', 'clk']
 plt.yticks(yticks, ytick_labels, fontsize=14, rotation=30)
 plt.ylim(0, 20)
@@ -87,4 +87,3 @@ plt.xlim(TSTART, TFINISH)
 plt.xlabel('Time (ns)')
 plt.tight_layout()
 plt.savefig("tx_buffer.pdf")
-plt.show()
