@@ -28,13 +28,13 @@ entity legacy_1v4 is
     LEGACY_TILE_EN_O            : out std_logic_vector(C_NUM_EN_LEGACY -1 downto 0)
 
 
-    ---------------------------------------------------------
-    ------------------------adc------------------------------
-    --ADC_EN_O            : out std_logic;
-    --ADC_CLK_O           : out std_logic;
-    --ADC_DATA_I          : in  std_logic_vector(ADC_DATA_WIDTH-2 downto 0);
-    --ADC_DOF_I           : in  std_logic
-    );
+  ---------------------------------------------------------
+  ------------------------adc------------------------------
+  --ADC_EN_O            : out std_logic;
+  --ADC_CLK_O           : out std_logic;
+  --ADC_DATA_I          : in  std_logic_vector(ADC_DATA_WIDTH-2 downto 0);
+  --ADC_DOF_I           : in  std_logic
+  );
 end entity;
 
 architecture behavioral of legacy_1v4 is
@@ -46,7 +46,10 @@ begin
   LEGACY_POSI_O               <= POSI_I(31 downto 0);
 
   --SYNC
-  LEGACY_RSTN_O                <= '0' when (SYNCN_I /= (SYNCN_I'range => '1')) else '1';
+  -- The 1v4 has one active-low reset line (GLOBAL_SYNC) shared by its 8 tiles.  SYNCN_I is
+  -- the ATC G output, active-low when inverted (ATC CONFIG_G, set_atc_default_config).  Tiles
+  -- 9-10 do not exist on the 1v4 and are ignored, so their G config cannot hold the reset.
+  LEGACY_RSTN_O                <= '0' when (SYNCN_I(C_NUM_EN_LEGACY-1 downto 0) /= (C_NUM_EN_LEGACY-1 downto 0 => '1')) else '1';
 
   --TRIG
   LEGACY_SYNCN_O              <= TRIG_I(7 downto 0);
@@ -54,7 +57,7 @@ begin
   --TILE_EN
   LEGACY_TILE_EN_O            <= TILE_EN_I(7 downto 0);
 
-  --ADC
-  --ADC_EN_O                  <= '0';
-  --ADC_CLK_O                 <= '0';
+--ADC
+--ADC_EN_O                  <= '0';
+--ADC_CLK_O                 <= '0';
 end behavioral;
