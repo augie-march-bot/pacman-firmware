@@ -12,6 +12,12 @@ use work.common.all;
 -- transmitted.  The header contains a channel mask specifying which
 -- channels have data to transmit.
 --
+-- Contract: every DMA packet is exactly C_TX_AXIS_BEATS (41) beats, TLAST
+-- on the last; the drivers always send 41 (TX_PACKET_BYTES = 0x148).  A
+-- shorter packet is not checked: the words it did not carry keep the
+-- previous packet's values (see axis_read), and are sent again to any
+-- channel the mask selects.
+--
 -- Once an entire DMA packet is received, the data for each UART is
 -- placed in an output buffer and a valid bit is set for each UART
 -- specified in the mask.  The stream reader is sent the ready
@@ -64,28 +70,10 @@ entity tx_buffer is
     READY_I            : in std_logic_vector(C_NUM_UART-1 downto 0);
 
     DEBUG_O           : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0)
-    );
+  );
 end;
 
 architecture behavioral of tx_buffer is
-  component axis_read is
-    generic (
-      constant C_AXIS_WIDTH  : integer  := C_TX_AXIS_WIDTH;
-      constant C_AXIS_BEATS   : integer  := C_TX_AXIS_BEATS
-      );
-    port (
-      CLK_I              : in std_logic;
-      RST_I              : in std_logic;
-      S_AXIS_TDATA       : in std_logic_vector(C_AXIS_WIDTH-1 downto 0);
-      S_AXIS_TVALID      : in std_logic;
-      S_AXIS_TREADY      : out std_logic;
-      S_AXIS_TKEEP       : in std_logic_vector(C_AXIS_WIDTH/8-1 downto 0);
-      S_AXIS_TLAST       : in std_logic;
-      DATA_O             : out std_logic_vector(C_AXIS_WIDTH*C_AXIS_BEATS-1 downto 0);
-      VALID_O            : out std_logic;
-      READY_I            : in std_logic
-    );
-  end component;
 
   signal clk, rst : std_logic;
 
@@ -112,18 +100,23 @@ architecture behavioral of tx_buffer is
   signal next_state : state_type := IDLE;
 
 begin
-  ar0: axis_read port map (
-    CLK_I           => clk,
-    RST_I           => rst,
-    S_AXIS_TDATA    => S_AXIS_TDATA,
-    S_AXIS_TVALID   => stream_valid,
-    S_AXIS_TREADY   => stream_ready,
-    S_AXIS_TKEEP    => S_AXIS_TKEEP,
-    S_AXIS_TLAST    => S_AXIS_TLAST,
-    DATA_O          => packet_data,
-    VALID_O         => packet_valid,
-    READY_I         => packet_ready
-  );
+  ar0: entity work.axis_read
+    generic map (
+      C_AXIS_WIDTH => C_TX_AXIS_WIDTH,
+      C_AXIS_BEATS => C_TX_AXIS_BEATS
+    )
+    port map (
+      CLK_I           => clk,
+      RST_I           => rst,
+      S_AXIS_TDATA    => S_AXIS_TDATA,
+      S_AXIS_TVALID   => stream_valid,
+      S_AXIS_TREADY   => stream_ready,
+      S_AXIS_TKEEP    => S_AXIS_TKEEP,
+      S_AXIS_TLAST    => S_AXIS_TLAST,
+      DATA_O          => packet_data,
+      VALID_O         => packet_valid,
+      READY_I         => packet_ready
+    );
 
   clk <= CLK_I;
   rst <= RST_I;

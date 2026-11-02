@@ -20,18 +20,18 @@ use work.register_map.all;
 entity tx_registers is
   port (
     -- clock and active-high reset
-    CLK_I	        : in std_logic;
-    RST_I	        : in std_logic;  -- ACTIVE LOW
+    CLK_I               : in std_logic;
+    RST_I               : in std_logic;  -- ACTIVE LOW
 
     -- register bus (REGBUS) interface
     S_REGBUS_RB_RUPDATE : in  std_logic;
-    S_REGBUS_RB_RADDR	: in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
-    S_REGBUS_RB_RDATA	: out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    S_REGBUS_RB_RADDR   : in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
+    S_REGBUS_RB_RDATA   : out std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
     S_REGBUS_RB_RACK    : out std_logic;
 
     S_REGBUS_RB_WUPDATE : in  std_logic;
-    S_REGBUS_RB_WADDR	: in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
-    S_REGBUS_RB_WDATA	: in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    S_REGBUS_RB_WADDR   : in  std_logic_vector(C_RB_ADDR_WIDTH-1 downto 0);
+    S_REGBUS_RB_WDATA   : in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
     S_REGBUS_RB_WACK    : out std_logic;
 
     -- status register from each UART TX channel
@@ -39,12 +39,12 @@ entity tx_registers is
     -- configuration register for each UART TX channel
     UART_CONFIG_O            : out uart_reg_array_t;
     -- global status reported from the TX buffer
-    BUFFER_STATUS_I    	: in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
+    BUFFER_STATUS_I     : in  std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
 
     -- look feature:
     LOOK_SELECT_O       : out std_logic_vector(C_SELECT_WIDTH-1 downto 0);
     LOOK_UART_DATA_I    : in std_logic_vector(C_RX_AXIS_WIDTH-1 downto 0)
-    );
+  );
 end;
 
 architecture behavioral of tx_registers is
@@ -69,7 +69,7 @@ architecture behavioral of tx_registers is
   signal bstatus    : std_logic_vector(C_RB_DATA_WIDTH-1 downto 0);
 
   -- registered controlled configuration per UART channel
-  signal config   : uart_reg_array_t := (others => (others => '0'));
+  signal uart_config   : uart_reg_array_t := (others => (others => '0'));
   -- zero all counters:
   signal zero_counters : std_logic := '0';
 
@@ -94,12 +94,10 @@ begin
   rst <= RST_I;
   rupdate  <= S_REGBUS_RB_RUPDATE;
   raddr    <= S_REGBUS_RB_RADDR;
-  S_REGBUS_RB_RDATA <= rdata;
-  S_REGBUS_RB_RACK  <= rack;
   wupdate  <= S_REGBUS_RB_WUPDATE;
   waddr    <= S_REGBUS_RB_WADDR;
   wdata    <= S_REGBUS_RB_WDATA;
-  S_REGBUS_RB_WACK	 <= wack;
+  S_REGBUS_RB_WACK       <= wack;
   LOOK_SELECT_O           <= look_select;
 
   -- register input data:
@@ -116,8 +114,26 @@ begin
     end if;
   end process;
 
-  -- set output registers:
-  UART_CONFIG_O  <= config;
+  -- additional register stage for congested inputs and outputs to aid with timing
+  process(clk, rst)
+  begin
+    if (rst = '1') then
+      S_REGBUS_RB_RDATA <= (others => '0');
+      S_REGBUS_RB_RACK  <= '0';
+    elsif rising_edge(clk) then
+      S_REGBUS_RB_RDATA <= rdata;
+      S_REGBUS_RB_RACK  <= rack;
+    end if;
+  end process;
+
+  process(clk, rst)
+  begin
+    if (rst = '1') then
+      UART_CONFIG_O <= (others => (others => '0'));
+    elsif rising_edge(clk) then
+      UART_CONFIG_O <= uart_config;
+    end if;
+  end process;
 
   -- Handle Read Request:
   -- 1) Read request are indicated via rupdate=1 with a valid address
@@ -138,50 +154,48 @@ begin
     if (rst = '1') then
       rack <= '0';
       rdata <= x"00000000";
-    else
-      if (rising_edge(clk)) then
-        rack <= '0';
-        if (rupdate='1') then
-          scope := to_integer(unsigned(raddr(15 downto 14)));
-          chan  := to_integer(unsigned(raddr(13 downto 8)));
-          reg   := to_integer(unsigned(raddr(7 downto 0)));
-          rdata <= x"00000000";
-          if (scope=C_SCOPE_UPPER_TX) then
-            rdata <= x"EEEEEEEE";
-            rack  <= '0';
-            -- UART channel registers:
-            if (chan < C_NUM_UART) then
-              if (reg=C_ADDR_TX_UART_STATUS) then
-                rdata <= ustatus(chan);
-                rack  <= '1';
-              elsif (reg=C_ADDR_TX_UART_CONFIG) then
-                rdata <= config(chan);
-                rack  <= '1';
-              elsif (reg=C_ADDR_TX_UART_STARTS) then
-                rdata <= (others => '0');
-                rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(starts_regb(chan));
-                rack  <= '1';
-              elsif (reg=C_ADDR_TX_UART_BEATS) then
-                rdata <= (others => '0');
-                rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(beats_regb(chan));
-                rack  <= '1';
-              end if;
-            -- global (to TX) registers:
-            elsif (chan = 16#3F#) then
-              if (reg=C_ADDR_TX_BUFFER_STATUS) then
-                rdata <= bstatus;
-                rack  <= '1';
-              elsif (reg=C_ADDR_TX_LOOK_SELECT) then
-                rdata <= (others => '0');
-                rdata(C_SELECT_WIDTH-1 downto 0) <= look_select;
-                rack  <= '1';
-              elsif (reg=C_ADDR_TX_LOOK_UA) then
-                rdata <= look(31 downto 0);
-                rack  <= '1';
-              elsif (reg=C_ADDR_TX_LOOK_UB) then
-                rdata <= look(63 downto 32);
-                rack  <= '1';
-              end if;
+    elsif (rising_edge(clk)) then
+      rack <= '0';
+      if (rupdate='1') then
+        scope := to_integer(unsigned(raddr(15 downto 14)));
+        chan  := to_integer(unsigned(raddr(13 downto 8)));
+        reg   := to_integer(unsigned(raddr(7 downto 0)));
+        rdata <= x"00000000";
+        if (scope=C_SCOPE_UPPER_TX) then
+          rdata <= x"EEEEEEEE";
+          rack  <= '0';
+          -- UART channel registers:
+          if (chan < C_NUM_UART) then
+            if (reg=C_ADDR_TX_UART_STATUS) then
+              rdata <= ustatus(chan);
+              rack  <= '1';
+            elsif (reg=C_ADDR_TX_UART_CONFIG) then
+              rdata <= uart_config(chan);
+              rack  <= '1';
+            elsif (reg=C_ADDR_TX_UART_STARTS) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(starts_regb(chan));
+              rack  <= '1';
+            elsif (reg=C_ADDR_TX_UART_BEATS) then
+              rdata <= (others => '0');
+              rdata(C_COUNT_BITS-1 downto 0) <= std_logic_vector(beats_regb(chan));
+              rack  <= '1';
+            end if;
+          -- global (to TX) registers:
+          elsif (chan = C_CHAN_GLOBAL) then
+            if (reg=C_ADDR_TX_BUFFER_STATUS) then
+              rdata <= bstatus;
+              rack  <= '1';
+            elsif (reg=C_ADDR_TX_LOOK_SELECT) then
+              rdata <= (others => '0');
+              rdata(C_SELECT_WIDTH-1 downto 0) <= look_select;
+              rack  <= '1';
+            elsif (reg=C_ADDR_TX_LOOK_LOWER) then
+              rdata <= look(31 downto 0);
+              rack  <= '1';
+            elsif (reg=C_ADDR_TX_LOOK_UPPER) then
+              rdata <= look(63 downto 32);
+              rack  <= '1';
             end if;
           end if;
         end if;
@@ -208,41 +222,39 @@ begin
   begin
     if (rst = '1') then
       wack  <= '0';
-      config            <= (others => std_logic_vector(to_unsigned(C_DEFAULT_TX_UART_CONFIG, C_RB_DATA_WIDTH)));
+      uart_config            <= (others => std_logic_vector(to_unsigned(C_DEFAULT_TX_UART_CONFIG, C_RB_DATA_WIDTH)));
       zero_counters <= '0';
-    else
-      if (rising_edge(clk)) then
-        wack <= '0';
-        zero_counters <= '0';
-        if (wupdate='1') then
-          scope := to_integer(unsigned(waddr(15 downto 14)));
-          chan  := to_integer(unsigned(waddr(13 downto 8)));
-          reg   := to_integer(unsigned(waddr(7 downto 0)));
-          -- UART channel registers:
-          if ((scope=C_SCOPE_UPPER_TX) and (chan < C_NUM_UART)) then
-            if (reg=C_ADDR_TX_UART_CONFIG) then
-              config(chan) <= wdata;
-              wack  <= '1';
-            end if;
+    elsif (rising_edge(clk)) then
+      wack <= '0';
+      zero_counters <= '0';
+      if (wupdate='1') then
+        scope := to_integer(unsigned(waddr(15 downto 14)));
+        chan  := to_integer(unsigned(waddr(13 downto 8)));
+        reg   := to_integer(unsigned(waddr(7 downto 0)));
+        -- UART channel registers:
+        if ((scope=C_SCOPE_UPPER_TX) and (chan < C_NUM_UART)) then
+          if (reg=C_ADDR_TX_UART_CONFIG) then
+            uart_config(chan) <= wdata;
+            wack  <= '1';
           end if;
-          -- broadcast: write to all uart channels:
-          if ((scope=0) and (chan = 16#3B#)) then
-            if (reg=C_ADDR_TX_UART_CONFIG) then
-              for i in 0 to C_NUM_UART-1 loop
-                config(i) <= wdata;
-              end loop;
-              wack  <= '1';
-            end if;
+        end if;
+        -- broadcast: write to all uart channels:
+        if ((scope=0) and (chan = C_CHAN_BROADCAST)) then
+          if (reg=C_ADDR_TX_UART_CONFIG) then
+            for i in 0 to C_NUM_UART-1 loop
+              uart_config(i) <= wdata;
+            end loop;
+            wack  <= '1';
           end if;
-          -- global (to TX) registers:
-          if ((scope=0) and (chan = 16#3F#)) then
-            if (reg=C_ADDR_TX_ZERO_CNTS) then
-              zero_counters <= '1';
-              wack  <= '1';
-            elsif (reg=C_ADDR_TX_LOOK_SELECT) then
-              look_select <= wdata(C_SELECT_WIDTH-1 downto 0);
-              wack  <= '1';
-            end if;
+        end if;
+        -- global (to TX) registers:
+        if ((scope=0) and (chan = C_CHAN_GLOBAL)) then
+          if (reg=C_ADDR_TX_ZERO_CNTS) then
+            zero_counters <= '1';
+            wack  <= '1';
+          elsif (reg=C_ADDR_TX_LOOK_SELECT) then
+            look_select <= wdata(C_SELECT_WIDTH-1 downto 0);
+            wack  <= '1';
           end if;
         end if;
       end if;
@@ -259,10 +271,10 @@ begin
       beats_next    <= (others => (others => '0'));
     else
       gen_next: for i in 0 to C_NUM_UART-1 loop
-        -- extract status bits for clarity
-        valid  := ustatus(i)(1);
-        ready  := ustatus(i)(2);
-        start  := ustatus(i)(3);
+        -- extract status bits for clarity (layout: status in tx_chan.vhd)
+        valid  := ustatus(i)(2);
+        ready  := ustatus(i)(3);
+        start  := ustatus(i)(0);
 
         -- starts count increments if starts=1
         if (start = '1') and (starts_rega(i) < C_COUNT_MAX) then
