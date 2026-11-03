@@ -1,1 +1,0 @@
-Official release build:  present only in the release commit (vivado/tcl/version_info.tcl sets OFFICIAL_RELEASE).
