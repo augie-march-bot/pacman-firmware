@@ -24,6 +24,7 @@ use ieee.numeric_std.all;
 library work;
 use work.common.all;
 use work.register_map.all;
+use work.firmware_version.all;
 use work.tb_pkg.all;
 
 entity regbus_system_check is
@@ -286,8 +287,8 @@ begin
 
     print("-- each unit answers its own registers");
     req("REG-1.1");
-    expect(x"FF10", x"00000003", "global FIRMWARE_MAJOR");
-    expect(x"FF14", x"00000006", "global FIRMWARE_MINOR");
+    expect(x"FF10", std_logic_vector(to_unsigned(C_FIRMWARE_MAJOR, 32)), "global FIRMWARE_MAJOR");
+    expect(x"FF14", std_logic_vector(to_unsigned(C_FIRMWARE_MINOR, 32)), "global FIRMWARE_MINOR");
     expect(x"FF24", x"00000005", "global HARDWARE_MINOR (hw1v5)");
     expect(x"D000", x"00000ADC", "adc STATUS");
     expect(x"0004", x"00000006", "tx UART_CONFIG ch0 default");
