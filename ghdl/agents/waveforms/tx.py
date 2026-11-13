@@ -19,8 +19,8 @@ def first_last(v):
 plot("tx_stream.pdf", V, [
     bit(T + "clk", "clk"),
     bus(T + "tdata[63:0]", "tdata", fmt=beat, show=first_last, size=7),
-    bit(T + "tvalid", "tvalid"),
     bit(T + "tlast", "tlast"),
+    bit(T + "tvalid", "tvalid"),
     bit(T + "tready", "tready"),
     bit(U + "valid[39:0]", "uvalid(1)", bits=(1, 1)),
     bit(U + "ready[39:0]", "uready(1)", bits=(1, 1)),
