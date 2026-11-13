@@ -28,16 +28,18 @@ def _vcd(path):
 def _series(vcd, name, t0, t1, bits=None):
     """(times_ns, values) of the changes in [t0, t1], starting with the value at t0."""
     tv = vcd[name].tv
+    width = int(vcd[name].size)
     out = []
     for t_fs, v in tv:
         t = t_fs / 1e6
+        if bits is not None:                # only the selected bits decide (others may be U)
+            v = v.rjust(width, v[0] if v[0] in "xXzZuU" else "0")
+            hi, lo = bits
+            v = v[width - 1 - hi:width - lo]
         if any(c not in "01" for c in v):
             val = None                      # U / X / Z:  shown as unknown
         else:
             val = int(v, 2)
-            if bits is not None:
-                hi, lo = bits
-                val = (val >> lo) & ((1 << (hi - lo + 1)) - 1)
         if t <= t0:
             out = [(t0, val)]
         elif t <= t1:
