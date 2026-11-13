@@ -1,9 +1,9 @@
 -- Diagram testbench (make waveforms):  tx_unit back pressure on one UART, for the firmware description
--- (tx_backpressure.pdf, tx_release.pdf).  All UARTs configured 00020006 (broadcast write:  phase 6,
--- delay 2 bit periods);  BAUD every 10 clocks.  Four packets back to back, each masking UART 0 only.
--- Packet 1 goes to the output buffer and UART 0 takes it at once.  Packet 2 waits in the output buffer
--- while packet 1 is transmitted.  Packet 3 fills the stream reader, which holds tready low until UART 0
--- takes packet 2.  Packet 4 then waits in the same way.
+-- (tx_backpressure.pdf).  All UARTs configured 00000000 (broadcast write:  phase 0, no delay between frames);
+-- BAUD every 10 clocks.  Packets offered flat out (tvalid stays high), each masking UART 1 only.
+-- Packet 1 goes to the output buffer and UART 1 takes it at once.  Packet 2 waits in the output buffer
+-- while packet 1 is transmitted.  Packet 3 fills the stream reader, which holds tready low until UART 1
+-- takes packet 2.  Each further packet then waits in the same way.
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -94,7 +94,7 @@ begin
     wait for 1 ns;
     waddr <= std_logic_vector(to_unsigned(C_SCOPE_UPPER_TX * 16#4000# + C_CHAN_BROADCAST * 16#100#
                                           + C_ADDR_TX_UART_CONFIG, 16));
-    wdata <= x"00020006";
+    wdata <= x"00000000";
     wupdate <= '1';
     wait until rising_edge(clk);
     wait for 1 ns;
@@ -102,10 +102,9 @@ begin
     wait for 50 ns;
     wait until rising_edge(clk);
     wait for 1 ns;
-    packet(x"0000000001", 1);
-    packet(x"0000000001", 2);
-    packet(x"0000000001", 3);
-    packet(x"0000000001", 4);
+    for n in 1 to 8 loop
+      packet(x"0000000002", n);
+    end loop;
     wait;
   end process;
 end behaviour;
