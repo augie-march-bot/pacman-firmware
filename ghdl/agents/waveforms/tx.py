@@ -15,7 +15,7 @@ def first_last(v):
     return v != 0 and (v >> 16 == 0 or (v & 0xFF) in (0, 1, 2, 39))
 
 
-# the two DMA packets into the TX buffer, and the hand-over to the UART channels
+# packet 1 into the TX buffer, the hand-over to UART 0, and its start bit
 plot("tx_stream.pdf", V, [
     bit(T + "clk", "clk"),
     bus(T + "tdata[63:0]", "tdata", fmt=beat, show=first_last, size=7),
@@ -24,7 +24,8 @@ plot("tx_stream.pdf", V, [
     bit(T + "tready", "tready"),
     bit(U + "valid[39:0]", "uvalid(0)", bits=(0, 0)),
     bit(U + "ready[39:0]", "uready(0)", bits=(0, 0)),
-], 60, 1100)
+    bit(T + "uut.posi_o[39:0]", "POSI(0)", bits=(0, 0)),
+], 60, 800, notes=[(570, 670, "POSI(0)", "start bit")])
 
 # the UART frames:  packet 1 on UARTs 0-2, then packet 2 on UARTs 0 and 1, after the 2-bit delay
 plot("tx_frames.pdf", V, [

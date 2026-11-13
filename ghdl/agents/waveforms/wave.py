@@ -7,7 +7,10 @@ A diagram is a list of rows, top to bottom.  Each row is one signal of the VCD:
                                              (show(value) False:  box drawn, no label)
     strobe(name, label)                      a single bit drawn as ticks (for dense one-clock pulses)
 
-    plot("out.pdf", "file.vcd", rows, t0, t1, marks={time: text}, unit="ns")
+    plot("out.pdf", "file.vcd", rows, t0, t1, marks={time: text}, notes=[(t0, t1, label, text)], unit="ns")
+
+marks:  a dashed vertical line across all rows, with its text on top.  notes:  a span from t0 to t1 in the row with
+that label (an arrow just above its low level), with its text above the arrow.
 
 Names are full VCD names ("tb.uut.sig[7:0]"); a vector can also be cut with bits=(hi, lo).  Times in ns.
 """
@@ -65,7 +68,7 @@ class bus:
         self.name, self.label, self.fmt, self.show, self.bits, self.size, self.h = name, label, fmt, show, bits, size, 1.0
 
 
-def plot(out, vcd_path, rows, t0, t1, marks=None, unit="ns", width=10.0, row_h=0.42, slope=None):
+def plot(out, vcd_path, rows, t0, t1, marks=None, notes=None, unit="ns", width=10.0, row_h=0.42, slope=None):
     vcd = _vcd(vcd_path)
     scale = 1000.0 if unit == "us" else 1.0
     slope = (t1 - t0) / 400.0 if slope is None else slope
@@ -111,6 +114,11 @@ def plot(out, vcd_path, rows, t0, t1, marks=None, unit="ns", width=10.0, row_h=0
                 if v is not None and r.show(v):
                     ax.text((a + b) / 2 / scale, y + 0.5, r.fmt(v), ha="center", va="center",
                             fontsize=r.size, clip_on=True)
+    for a, b, label, txt in (notes or []):
+        y = (n - 1 - [r.label for r in rows].index(label)) * 1.6
+        ax.annotate("", xy=(a / scale, y + 0.2), xytext=(b / scale, y + 0.2),
+                    arrowprops=dict(arrowstyle="<->", color="0.25", lw=0.8, shrinkA=0, shrinkB=0))
+        ax.text((a + b) / 2 / scale, y + 0.28, txt, ha="center", va="bottom", fontsize=8, color="0.25")
     for t, txt in (marks or {}).items():
         ax.axvline(t / scale, color="0.5", ls="--", lw=0.8)
         ax.text(t / scale, n * 1.6 - 0.35, txt, ha="center", va="bottom", fontsize=9, color="0.25")

@@ -1,8 +1,8 @@
 -- Diagram testbench (make waveforms):  tx_unit sending two DMA packets back to back, for the firmware
 -- description (tx_stream.pdf, tx_frames.pdf).  All UARTs configured 00020006 (broadcast write:  phase 6,
--- delay 2 bit periods);  BAUD every 10 clocks.  Packet 1 masks UARTs 0-2, packet 2 UARTs 0 and 1;  the
--- stream offers packet 2 right after packet 1:  it is read at once, moves to the output buffer (valid) and
--- waits there while packet 1 is transmitted;  the stream reader is free again for a third packet.
+-- delay 2 bit periods);  BAUD every 10 clocks.  Packet 1 masks UARTs 0-2, packet 2 UARTs 0 and 1.  The
+-- stream offers packet 2 300 ns after packet 1.  It is read at once, moves to the output buffer (valid) and
+-- waits there while packet 1 is transmitted.  The stream reader is free again for a third packet.
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -99,6 +99,7 @@ begin
     wait until rising_edge(clk);
     wait for 1 ns;
     packet(x"0000000007", 1);
+    wait for 300 ns;
     packet(x"0000000003", 2);
     wait;
   end process;
