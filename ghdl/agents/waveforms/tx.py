@@ -25,7 +25,8 @@ plot("tx_stream.pdf", V, [
     bit(U + "valid[39:0]", "uvalid(1)", bits=(1, 1)),
     bit(U + "ready[39:0]", "uready(1)", bits=(1, 1)),
     bit(T + "uut.posi_o[39:0]", "POSI(1)", bits=(1, 1)),
-], 60, 800, notes=[(570, 670, "POSI(1)", "start bit")])
+    bit(T + "baud", "BAUD"),
+], 60, 800, notes=[(610, 710, "POSI(1)", "start bit")])
 
 # the UART frames:  packet 1 on UARTs 0-2, then packet 2 on UARTs 0 and 1, after the 2-bit delay
 plot("tx_frames.pdf", V, [

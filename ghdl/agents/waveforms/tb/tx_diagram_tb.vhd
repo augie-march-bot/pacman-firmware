@@ -1,5 +1,5 @@
 -- Diagram testbench (make waveforms):  tx_unit sending two DMA packets back to back, for the firmware
--- description (tx_stream.pdf, tx_frames.pdf).  All UARTs configured 00020006 (broadcast write:  phase 6,
+-- description (tx_stream.pdf, tx_frames.pdf).  All UARTs configured 00020000 (broadcast write:  phase 0,
 -- delay 2 bit periods);  BAUD every 10 clocks.  Packet 1 masks UARTs 0-2, packet 2 UARTs 0 and 1.  The
 -- stream offers packet 2 300 ns after packet 1.  It is read at once, moves to the output buffer (valid) and
 -- waits there while packet 1 is transmitted.  The stream reader is free again for a third packet.
@@ -90,7 +90,7 @@ begin
     wait for 1 ns;
     waddr <= std_logic_vector(to_unsigned(C_SCOPE_UPPER_TX * 16#4000# + C_CHAN_BROADCAST * 16#100#
                                           + C_ADDR_TX_UART_CONFIG, 16));
-    wdata <= x"00020006";
+    wdata <= x"00020000";
     wupdate <= '1';
     wait until rising_edge(clk);
     wait for 1 ns;
