@@ -4,21 +4,10 @@ V = "tx_diagram_tb.vcd"
 T = "tx_diagram_tb."
 U = T + "uut."
 
-
-def beat(v):
-    if v >> 16 == 0:
-        return "M"
-    return "%d" % (v & 0xFF)
-
-
-def first_last(v):
-    return v != 0 and (v >> 16 == 0 or (v & 0xFF) in (0, 1, 2, 39))
-
-
 # packet 1 into the TX buffer, the hand-over to UART 1, and its start bit (word 0x...0101:  bit 0 is 1)
 plot("tx_stream.pdf", V, [
     bit(T + "clk", "clk"),
-    bus(T + "tdata[63:0]", "tdata", fmt=beat, show=first_last, size=7),
+    bus(T + "tdata[63:0]", "tdata", show=lambda v: False),
     bit(T + "tlast", "tlast"),
     bit(T + "tvalid", "tvalid"),
     bit(T + "tready", "tready"),
@@ -26,7 +15,7 @@ plot("tx_stream.pdf", V, [
     bit(U + "ready[39:0]", "uready(1)", bits=(1, 1)),
     bit(T + "uut.posi_o[39:0]", "POSI(1)", bits=(1, 1)),
     bit(T + "baud", "BAUD"),
-], 60, 800, notes=[(610, 710, "POSI(1)", "start bit")])
+], 60, 800, notes=[(610, 710, "POSI(1)", "Start")])
 
 # the UART frames:  packet 1 on UARTs 0-2, then packet 2 on UARTs 0 and 1, after the 2-bit delay
 plot("tx_frames.pdf", V, [

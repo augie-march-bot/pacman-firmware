@@ -4,12 +4,13 @@
 #
 # The first run makes a Python venv here (.venv; needs network once).  matplotlib is pinned to the version
 # the TRM PDFs were made with (3.10.3), so the figures match them.  Another Python:  make PYTHON=python3
+# wave.py typesets its figures with pdflatex (pgf backend, lmodern).
 
 B      := ../build
 PYTHON ?= .venv/bin/python
 FIGS   := single_read.pdf single_write.pdf rx_buffer.pdf tx_buffer.pdf
 # the firmware description (pacman_docs/agents/firmware.tex):  wave.py, one script and one testbench per unit
-DOCS   := global.pdf tx_stream.pdf tx_frames.pdf tx_backpressure.pdf tx_release.pdf rx_chan_start.pdf \
+DOCS   := global.pdf tx_stream.pdf tx_frames.pdf tx_backpressure.pdf rx_chan_start.pdf \
           rx_chan_frames.pdf rx_stream.pdf atc_timer.pdf atc_poke.pdf atc_lemo.pdf
 
 all: $(FIGS) $(DOCS)
@@ -42,7 +43,7 @@ global.pdf: global.py wave.py global_diagram_tb.vcd $(PYTHON)
 	$(PYTHON) $<
 tx_stream.pdf tx_frames.pdf &: tx.py wave.py tx_diagram_tb.vcd $(PYTHON)
 	$(PYTHON) $<
-tx_backpressure.pdf tx_release.pdf &: tx_backpressure.py wave.py tx_backpressure_diagram_tb.vcd $(PYTHON)
+tx_backpressure.pdf: tx_backpressure.py wave.py tx_backpressure_diagram_tb.vcd $(PYTHON)
 	$(PYTHON) $<
 rx_chan_start.pdf rx_chan_frames.pdf &: rx_chan.py wave.py rx_chan_diagram_tb.vcd $(PYTHON)
 	$(PYTHON) $<
