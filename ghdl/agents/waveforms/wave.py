@@ -12,7 +12,7 @@ A diagram is a list of rows, top to bottom.  Each row is one signal of the VCD:
 
 marks:  a dashed vertical line across all rows, with its text on top.  notes:  text centred on the span t0-t1
 in the row with that label, just above its low level.  arrows:  an arrow to time t at the level (0 or 1) of
-that row, from its text dx, dy points away.  bit(..., count=True):  each high period numbered below the row.
+that row, from its text dx, dy points away.  bit(..., count=True):  each high period numbered inside the pulse.
 
 Names are full VCD names ("tb.uut.sig[7:0]"); a vector can also be cut with bits=(hi, lo).  Times in ns.
 
@@ -122,7 +122,7 @@ def plot(out, vcd_path, rows, t0, t1, marks=None, notes=None, arrows=None, unit=
             if r.count:
                 ones = [(t, s[k + 1][0] if k + 1 < len(s) else t1) for k, (t, v) in enumerate(s) if v == 1]
                 for j, (a, b) in enumerate(ones):
-                    ax.text((a + b) / 2 / scale, y - 0.1, "%d" % (j + 1), ha="center", va="top", fontsize=SMALL)
+                    ax.text((a + b) / 2 / scale, y + 0.45, "%d" % (j + 1), ha="center", va="center", fontsize=SMALL)
         else:
             for k, (t, v) in enumerate(s):
                 te = s[k + 1][0] if k + 1 < len(s) else t1
@@ -154,8 +154,7 @@ def plot(out, vcd_path, rows, t0, t1, marks=None, notes=None, arrows=None, unit=
     ax.set_yticklabels(yl, fontsize=LABEL)
     ax.tick_params(axis="y", length=0)
     ax.tick_params(axis="x", labelsize=SMALL)
-    bottom = -0.75 if any(getattr(r, "count", False) for r in rows[-1:]) else -0.4
-    ax.set_ylim(bottom, n * 1.6 + (0.4 if marks else -0.2))
+    ax.set_ylim(-0.4, n * 1.6 + (0.4 if marks else -0.2))
     ax.set_xlim(t0 / scale, t1 / scale)
     ax.set_xlabel(r"Time ($\mu$s)" if unit == "us" else "Time (%s)" % unit, fontsize=LABEL)
     for side in ("top", "right", "left"):
