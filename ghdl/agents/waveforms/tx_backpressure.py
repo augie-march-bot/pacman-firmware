@@ -13,4 +13,4 @@ plot("tx_backpressure.pdf", V, [
     bit(U + "ready[39:0]", "uready(1)", bits=(1, 1)),
     bit(U + "posi_o[39:0]", "POSI(1)", bits=(1, 1)),
 ], 121, 14000, unit="us",
-    arrows=[(7160, "POSI(1)", 1, "Stop", -22, 6), (7260, "POSI(1)", 0, "Start", 22, 9)])
+    arrows=[(7160, "POSI(1)", 1, "Stop", -20, 21), (7260, "POSI(1)", 1, "Start", 20, 21)])
